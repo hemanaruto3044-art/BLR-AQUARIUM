@@ -1,0 +1,11 @@
+{
+  "name": "BLR AQUARIUM",
+  "description": "Premium 3D aquarium e-commerce experience featuring real-time live product viewing requests, Google OAuth, and comprehensive admin controls.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "firebase"
+  ]
+}

@@ -1,0 +1,179 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Connection Test Rule
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // 2. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn(); } // Relaxed for demo - allows any signed in user to create orders
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isAdmin() { 
+      let email = request.auth.token.email;
+      return isSignedIn() && (
+        email != null && email in ['hemanaruto3044@gmail.com', 'Lakshmiganthan850@gmail.com', 'hemaum1010@gmail.com'] ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      ); 
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // 4. Validation Blueprints
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.keys().size() <= 12 &&
+             data.uid is string && (data.uid == request.auth.uid || isAdmin()) &&
+             data.email is string && data.email.size() < 256 &&
+             data.role in ['user', 'admin'];
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'price', 'category', 'stock']) &&
+             data.name is string && data.name.size() < 200 &&
+             data.price is number && data.price >= 0 &&
+             data.category is string &&
+             (data.stock is int || data.stock is number) && data.stock >= 0 &&
+             (!('isFreeDelivery' in data) || data.isFreeDelivery is bool) &&
+             (!('deliveryCharge' in data) || data.deliveryCharge is number) &&
+             (!('youtubeVideo' in data) || data.youtubeVideo is string) &&
+             (!('images' in data) || data.images is list) &&
+             (!('isActive' in data) || data.isActive is bool);
+    }
+
+    function isValidLiveCall(data) {
+      return data.keys().hasAll(['productId', 'userId', 'status']) &&
+             data.productId is string &&
+             data.userId == request.auth.uid &&
+             data.status in ['pending', 'ongoing', 'accepted', 'rejected', 'ended'];
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['userId', 'items', 'total', 'status', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.items is list &&
+             data.total is number &&
+             data.status in ['pending', 'shipped', 'delivered', 'cancelled'] &&
+             (!('paymentMethod' in data) || data.paymentMethod in ['cod', 'qr']) &&
+             (!('paymentStatus' in data) || data.paymentStatus in ['unpaid', 'pending_verification', 'paid']) &&
+             data.createdAt == request.time;
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll(['orderId', 'userId', 'transactionId', 'amount', 'status', 'createdAt']) &&
+             data.orderId is string &&
+             data.userId == request.auth.uid &&
+             data.transactionId is string && data.transactionId.size() >= 4 &&
+             data.amount is number &&
+             data.status == 'pending' &&
+             data.createdAt == request.time;
+    }
+
+    function isValidTestRequest(data) {
+      return data.keys().hasAll(['productId', 'userId', 'userName', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.productId is string &&
+             data.createdAt == request.time;
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['name']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             (!('image' in data) || (data.image is string && data.image.size() < 1000));
+    }
+
+    function isValidWishlistItem(data) {
+      return data.keys().hasAll(['userId', 'productId', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.productId is string &&
+             data.createdAt == request.time;
+    }
+
+    // 5. Collection Rules
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isVerified() && isValidUser(incoming());
+      allow update: if (isOwner(userId) || isAdmin()) && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'role']) &&
+                    (incoming().role == existing().role || isAdmin());
+    }
+
+    match /products/{productId} {
+      allow read: if true; // Public catalog
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidCategory(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /wishlist/{wishId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid);
+      allow create: if isVerified() && isValidWishlistItem(incoming());
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /live_calls/{callId} {
+      allow get: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidLiveCall(incoming());
+      allow update: if isSignedIn() && (
+        // User can cancel their own
+        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'ended') ||
+        // Admin can accept/reject/end
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasAny(['status', 'adminAlerted', 'updatedAt']))
+      );
+    }
+
+    match /orders/{orderId} {
+      allow get: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidOrder(incoming());
+      allow update: if (isSignedIn() && isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus']) && incoming().paymentStatus == 'pending_verification') || isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow get: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidPayment(incoming());
+      allow update: if isAdmin();
+    }
+
+    match /test_requests/{requestId} {
+      allow list, get, delete: if isAdmin();
+      allow create: if isVerified() && isValidTestRequest(incoming());
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /fcm_tokens/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /giveaways/{giveawayId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+      // Special allow for users to enter - usually updates the entries array
+      allow update: if isSignedIn() && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['entries']) &&
+                    incoming().entries.size() > existing().entries.size() &&
+                    request.auth.uid in incoming().entries;
+    }
+  }
+}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BLR AQUARIUM</title>
+    <link rel="icon" type="image/jpeg" href="https://i.ibb.co/6RCCdcFt/IMG-20260511-WA0010.jpg" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0c4a6e" />
+    <script>
+      if (window.global === undefined) { window.global = window; }
+      window.process = { 
+        env: { DEBUG: undefined }, 
+        version: '', 
+        nextTick: function(fn) { setTimeout(fn, 0); } 
+      };
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
