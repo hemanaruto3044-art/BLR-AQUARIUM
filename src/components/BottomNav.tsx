@@ -53,15 +53,15 @@ const BottomNav = () => {
   ];
 
   return (
-    <div className="md:hidden fixed bottom-6 left-4 right-4 z-[100]">
-      <div className="bg-sky-950/80 backdrop-blur-xl border border-sky-800 rounded-[2rem] p-2 shadow-2xl flex items-center justify-around">
+    <div className="lg:hidden fixed bottom-4 left-2 right-2 z-[100]">
+      <div className="bg-sky-950/90 backdrop-blur-2xl border border-sky-800 rounded-[1.5rem] p-1 shadow-2xl flex items-center justify-around">
         {navItems.map((item) => (
           <NavLink
             key={item.path + item.label}
             to={item.path}
             className={({ isActive }) => cn(
-              "flex flex-col items-center gap-1 p-3 rounded-2xl transition-all relative overflow-hidden group",
-              isActive ? "text-cyan-400 bg-cyan-500/10" : "text-sky-300 hover:text-white"
+              "flex flex-col items-center gap-1 p-2 py-3 rounded-xl transition-all relative overflow-hidden group flex-1",
+              isActive ? "text-cyan-400 bg-cyan-500/10" : "text-sky-300 active:scale-95 transition-transform"
             )}
           >
             {item.icon}

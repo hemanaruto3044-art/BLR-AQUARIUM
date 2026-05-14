@@ -23,79 +23,115 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );
   
+  const [isAudioEnabled, setIsAudioEnabled] = useState(false);
+  const pendingAlertRef = useRef(false);
   const lastPlayedTime = useRef<number>(0);
   const startTimeRef = useRef<number>(Date.now());
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // Initialize AudioContext on first user interaction to help bypass browser blocks
+  // Initialize AudioContext and enable audio on first user interaction
   useEffect(() => {
-    const initAudio = () => {
+    const enableAudio = () => {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-        console.log('AudioContext initialized');
       }
+      
       if (audioContextRef.current?.state === 'suspended') {
-        audioContextRef.current.resume();
+        audioContextRef.current.resume().then(() => {
+          console.log('AudioContext resumed via interaction');
+          setIsAudioEnabled(true);
+          if (pendingAlertRef.current) {
+            console.log('Playing pending alert after interaction');
+            playAlert();
+            pendingAlertRef.current = false;
+          }
+        });
+      } else {
+        setIsAudioEnabled(true);
+        if (pendingAlertRef.current) {
+          console.log('Playing pending alert after interaction');
+          playAlert();
+          pendingAlertRef.current = false;
+        }
       }
     };
-    window.addEventListener('click', initAudio, { once: true });
-    window.addEventListener('touchstart', initAudio, { once: true });
+
+    const handleInteraction = () => {
+      enableAudio();
+      // Keep listeners if you want to keep resuming, or remove if one-time is enough
+      // Removing for performance, but adding keydown too
+    };
+
+    window.addEventListener('click', handleInteraction, { once: true });
+    window.addEventListener('touchstart', handleInteraction, { once: true });
+    window.addEventListener('keydown', handleInteraction, { once: true });
+
     return () => {
-      window.removeEventListener('click', initAudio);
-      window.removeEventListener('touchstart', initAudio);
+      window.removeEventListener('click', handleInteraction);
+      window.removeEventListener('touchstart', handleInteraction);
+      window.removeEventListener('keydown', handleInteraction);
     };
   }, []);
 
   const playAlert = useCallback(() => {
     // Only play sound if user is an admin
-    if (!isAdmin) {
-      console.log('playAlert called but user is not admin');
-      return;
-    }
+    if (!isAdmin) return;
 
-    // Prevent overlapping alerts within 3 seconds
+    // Prevent overlapping alerts within 10 seconds
     const now = Date.now();
-    if (now - lastPlayedTime.current < 3000) {
-      console.log('Skipping overlapping alert');
+    if (now - lastPlayedTime.current < 10000) {
+      console.log('Skipping overlapping alert (throttled)');
       return;
     }
-    lastPlayedTime.current = now;
+    
+    console.log('Attempting to play alert sound sequence...');
 
-    console.log('Playing alert sound sequence...');
-
-    const playSound = () => {
+    const playSound = async () => {
       const audio = new Audio(ALERT_SOUND_URL);
       audio.volume = 1.0;
       let playCount = 0;
       const MAX_PLAYS = 5;
 
-      const playCycle = () => {
+      const playNextCycle = () => {
+        if (playCount >= MAX_PLAYS) {
+          console.log('Alert sequence completed.');
+          return;
+        }
+
+        audio.currentTime = 0;
         audio.play().then(() => {
           console.log(`Alert cycle ${playCount + 1}/${MAX_PLAYS} playing`);
-        }).catch(e => {
-          console.error('Failed to play alert sound:', e);
-          toast.error('Notification sound blocked. Click anywhere to enable sound.', {
-            id: 'audio-blocked'
-          });
+          playCount++;
+          lastPlayedTime.current = Date.now(); // Only update lastPlayed if successful
+          pendingAlertRef.current = false;
+        }).catch(err => {
+          if (err.name === 'NotAllowedError') {
+            console.warn('Playback blocked by browser policy. Queuing for first interaction.');
+            pendingAlertRef.current = true;
+            setIsAudioEnabled(false);
+            
+            // Only show toast once
+            toast.error('Notification sound blocked. Click anywhere on the page to enable alerts.', {
+              id: 'audio-blocked',
+              duration: 8000,
+              icon: '🔊'
+            });
+          } else {
+            console.error('Audio playback error:', err);
+          }
         });
       };
 
       audio.onended = () => {
-        playCount++;
         if (playCount < MAX_PLAYS) {
-          setTimeout(playCycle, 800);
+          setTimeout(playNextCycle, 800);
         }
       };
 
-      playCycle();
+      playNextCycle();
     };
 
-    // Try to resume AudioContext if it exists
-    if (audioContextRef.current?.state === 'suspended') {
-      audioContextRef.current.resume().then(playSound);
-    } else {
-      playSound();
-    }
+    playSound();
 
     toast.error('NEW ADMIN ACTION REQUIRED!', {
       duration: 15000,
@@ -107,9 +143,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         fontWeight: '900',
         padding: '20px',
         borderRadius: '16px',
-        fontSize: '18px',
         border: '4px solid #fff',
-        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
       }
     });
   }, [isAdmin]);
@@ -192,8 +226,44 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (isAdmin) {
       startTimeRef.current = Date.now();
       console.log('Admin session active. Monitoring from:', new Date(startTimeRef.current).toLocaleTimeString());
+      
+      // Check for existing pending items upon opening/becoming admin
+      const checkExisting = async () => {
+        try {
+          const { getDocs, where } = await import('firebase/firestore');
+          
+          // Check for pending orders
+          const ordersSnap = await getDocs(query(collection(db, 'orders'), where('paymentStatus', '==', 'pending_verification'), limit(1)));
+          if (!ordersSnap.empty) {
+            console.log('Initial pending order found');
+            playAlert();
+            return;
+          }
+
+          // Check for pending calls
+          const callsSnap = await getDocs(query(collection(db, 'live_calls'), where('status', '==', 'pending'), limit(1)));
+          if (!callsSnap.empty) {
+            console.log('Initial pending call found');
+            playAlert();
+            return;
+          }
+
+          // Check for pending payments
+          const paymentsSnap = await getDocs(query(collection(db, 'payments'), where('status', '==', 'pending'), limit(1)));
+          if (!paymentsSnap.empty) {
+            console.log('Initial pending payment found');
+            playAlert();
+            return;
+          }
+        } catch (error) {
+          console.error('Error checking initial pending items:', error);
+        }
+      };
+
+      // Slight delay to ensure UI is ready
+      setTimeout(checkExisting, 2000);
     }
-  }, [isAdmin]);
+  }, [isAdmin, playAlert]);
 
   // Listen for new orders to play alert for admins
   useEffect(() => {

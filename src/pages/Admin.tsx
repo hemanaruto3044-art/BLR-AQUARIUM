@@ -338,9 +338,12 @@ const Admin = () => {
     }
   };
 
+  const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
+
   const handleUpdatePaymentStatus = async (payment: any, status: 'approved' | 'rejected', reason?: string) => {
     const payPath = `payments/${payment.id}`;
     const ordPath = `orders/${payment.orderId}`;
+    setProcessingPaymentId(payment.id);
     try {
       // 1. Update payment record
       await updateDoc(doc(db, 'payments', payment.id), { 
@@ -358,13 +361,15 @@ const Admin = () => {
       } catch (ordError) {
         console.error('Order status update failed:', ordError);
         handleFirestoreError(ordError, OperationType.UPDATE, ordPath);
-        return;
+        // We still finished the payment update though
       }
 
       toast.success(`Payment ${status}`);
     } catch (e: any) {
       console.error('Payment approval error:', e);
       handleFirestoreError(e, OperationType.UPDATE, payPath);
+    } finally {
+      setProcessingPaymentId(null);
     }
   };
 
@@ -1237,7 +1242,7 @@ const Admin = () => {
                             <p className="text-2xl font-black text-cyan-400 italic">₹{payment.amount.toLocaleString()}</p>
                           </div>
 
-                          <div className="lg:border-l lg:border-sky-800 lg:pl-8 flex gap-3">
+                          <div className="w-full lg:w-auto lg:border-l lg:border-sky-800 lg:pl-8 flex flex-wrap gap-2 md:gap-3">
                             <button 
                               onClick={() => {
                                 const ord = orders.find(o => o.id === payment.orderId);
@@ -1254,7 +1259,7 @@ const Admin = () => {
                                   ), { duration: 5000, style: { background: '#082f49', border: '1px solid #0c4a6e' } });
                                 }
                               }}
-                              className="px-4 py-3 bg-sky-950 text-sky-400 hover:text-white rounded-xl font-bold text-[10px] uppercase tracking-widest border border-sky-800 transition-all"
+                              className="px-4 py-3 bg-sky-950 text-sky-400 hover:text-white rounded-xl font-bold text-[10px] uppercase tracking-widest border border-sky-800 transition-all flex-1 lg:flex-none text-center"
                             >
                               Check Items
                             </button>
@@ -1265,19 +1270,22 @@ const Admin = () => {
                                     const reason = prompt('Rejection Reason (optional):');
                                     handleUpdatePaymentStatus(payment, 'rejected', reason || undefined);
                                   }}
-                                  className="px-6 py-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all"
+                                  disabled={processingPaymentId === payment.id}
+                                  className="px-6 py-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all flex-1 lg:flex-none text-center disabled:opacity-50"
                                 >
                                   Reject
                                 </button>
                                 <button 
                                   onClick={() => {
-                                    if(confirm(`Approve payment of ₹${payment.amount}?`)) {
-                                      handleUpdatePaymentStatus(payment, 'approved');
-                                    }
+                                    handleUpdatePaymentStatus(payment, 'approved');
                                   }}
-                                  className="px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-cyan-600/20"
+                                  disabled={processingPaymentId === payment.id}
+                                  className={cn(
+                                    "px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-cyan-600/20 flex-1 lg:flex-none text-center disabled:opacity-50",
+                                    processingPaymentId === payment.id && "animate-pulse"
+                                  )}
                                 >
-                                  Approve
+                                  {processingPaymentId === payment.id ? 'Processing...' : 'Approve'}
                                 </button>
                               </>
                             ) : (
@@ -1317,6 +1325,15 @@ const Admin = () => {
               >
                 <div className="flex items-center justify-between mb-8">
                   <h2 className="text-3xl font-black text-white tracking-tight uppercase italic">System Control</h2>
+                  <button 
+                    onClick={() => {
+                      playAlert();
+                      toast.success('Alert sequence started (5 cycles)');
+                    }}
+                    className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-bold text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-red-600/20 active:scale-95"
+                  >
+                    <Bell className="w-4 h-4" /> Test Alert Sound
+                  </button>
                 </div>
 
                 {/* Payment Method Toggles */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
@@ -7,6 +7,7 @@ import ThreeBackground from '../components/ThreeBackground';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatDate } from '../lib/utils';
 import { fetchTrackingStatus, TrackingData } from '../lib/trackingService';
+import { useLocation } from 'react-router-dom';
 
 const Tracking = () => {
   const [orderId, setOrderId] = useState('');
@@ -14,17 +15,23 @@ const Tracking = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [liveData, setLiveData] = useState<TrackingData | null>(null);
+  const location = useLocation();
 
-  const handleTrack = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!orderId.trim()) return;
+  // Automatic loading from URL parameter
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get('id');
+    if (id) {
+      setOrderId(id);
+      performTracking(id);
+    }
+  }, [location]);
 
+  const performTracking = async (searchTerm: string) => {
     setLoading(true);
     setError('');
     setOrder(null);
     setLiveData(null);
-
-    const searchTerm = orderId.trim();
 
     try {
       // 1. Try search by Document ID (Order ID)
@@ -63,6 +70,12 @@ const Tracking = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleTrack = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orderId.trim()) return;
+    performTracking(orderId.trim());
   };
 
   const getStatusColor = (status: string) => {

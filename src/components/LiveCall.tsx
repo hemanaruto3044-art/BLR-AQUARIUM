@@ -24,60 +24,99 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
   const peerRef = useRef<Peer.Instance | null>(null);
 
   useEffect(() => {
+    console.log(`LiveCall mounting. isHost: ${isHost}, callId: ${callId}`);
+    
     // 1. Get User Media
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then((currentStream) => {
+    const startMedia = async () => {
+      try {
+        console.log('Requesting media devices...');
+        const currentStream = await navigator.mediaDevices.getUserMedia({ 
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: 'user'
+          }, 
+          audio: true 
+        });
+        
+        console.log('Media devices secured');
         setStream(currentStream);
         if (myVideo.current) {
           myVideo.current.srcObject = currentStream;
         }
 
         // 2. Initialize Socket
-        const socket = io(); // Connects to same host
+        console.log('Connecting to signaling server...');
+        const socket = io({
+          transports: ['websocket'],
+          upgrade: false,
+          reconnection: true
+        });
         socketRef.current = socket;
 
         const iceServers = [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
           { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-          { urls: 'stun:stun4.l.google.com:19302' },
         ];
 
         socket.on('connect', () => {
-          console.log('Connected to signaling server as', socket.id);
+          console.log('Connected to signaling server with ID:', socket.id);
           socket.emit('join-call', callId);
         });
 
-        // 3. Handle Peer-to-Peer logic
-        if (isHost) {
-          // Admin (Host) waits for user to join
-          socket.on('user-joined', (userId) => {
-             if (userId === socket.id) return; // Don't connect to self
-             console.log('User joined, initiating peer connection to:', userId);
-             initiatePeer(userId, currentStream, iceServers);
-          });
-        }
+        socket.on('user-joined', (userId) => {
+          console.log('Event: user-joined', userId);
+          if (isHost) {
+            console.log('Host detected someone joined. Initiating connection to:', userId);
+            initiatePeer(userId, currentStream, iceServers);
+          } else {
+            // User detected Admin (Host) joined. Send "iam-here" to trigger initiation from Admin
+            console.log('Participant detected someone joined. Signaling presence...');
+            socket.emit('signal', {
+              to: userId,
+              from: socket.id,
+              type: 'presence' // Custom type to say I am here
+            });
+          }
+        });
 
         socket.on('signal', (data) => {
-          const { from, signal } = data;
+          const { from, signal, type } = data;
+          
+          if (type === 'presence') {
+            if (isHost) {
+              console.log('Host received presence signal from:', from, '. Initiating connection...');
+              initiatePeer(from, currentStream, iceServers);
+            }
+            return;
+          }
+
           console.log('Received signal from', from);
           if (peerRef.current) {
             peerRef.current.signal(signal);
           } else if (!isHost) {
-            // User (Participant) receives signal from Admin
+            console.log('Participant receiving initial signal. Accepting...');
             acceptPeer(from, signal, currentStream, iceServers);
           }
         });
 
-      })
-      .catch((err) => {
-        console.error('Failed to get media devices:', err);
-        toast.error('Could not access camera/microphone. Please check permissions.');
+        socket.on('disconnect', () => {
+          console.log('Disconnected from signaling server');
+          setConnected(false);
+        });
+
+      } catch (err) {
+        console.error('Failed to initialize call:', err);
+        toast.error('Camera/Microphone access denied or failed.');
         onEnd();
-      });
+      }
+    };
+
+    startMedia();
 
     return () => {
+      console.log('LiveCall unmounting. Cleaning up...');
       stream?.getTracks().forEach(track => track.stop());
       socketRef.current?.disconnect();
       peerRef.current?.destroy();

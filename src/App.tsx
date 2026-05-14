@@ -58,22 +58,20 @@ function AppContent() {
       <FishBackground />
       <Navbar />
       <main className={cn(
-        "flex-grow pt-16 relative z-10",
-        !isAdminPage && "pb-24 md:pb-0"
+        "flex-grow pt-16 relative z-10 overflow-x-hidden",
+        !isAdminPage && "pb-24 lg:pb-0"
       )}>
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, y: 20, scale: 0.98, rotateX: 5 }}
-            animate={{ opacity: 1, y: 0, scale: 1, rotateX: 0 }}
-            exit={{ opacity: 0, y: -20, scale: 1.02, rotateX: -5 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
             transition={{ 
-              type: "spring",
-              stiffness: 100,
-              damping: 20,
-              duration: 0.4 
+              duration: 0.3,
+              ease: "easeOut"
             }}
-            className="w-full h-full perspective-1000"
+            className="w-full h-full"
           >
             <Routes location={location}>
               <Route path="/" element={<Home />} />

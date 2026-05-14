@@ -5,7 +5,7 @@ import { LogIn, Fish } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 
 const Login = () => {
-  const { user, login, loading } = useAuth();
+  const { user, login, loginAnonymous, loading } = useAuth();
 
   if (loading) return null;
   if (user) return <Navigate to="/" />;
@@ -30,20 +30,36 @@ const Login = () => {
           Sign in to your account to explore rare species and manage your aquarium.
         </p>
 
-        <button
-          onClick={login}
-          className="w-full flex items-center justify-center gap-3 bg-white text-sky-950 py-4 px-6 rounded-2xl font-bold hover:bg-sky-100 transition-all shadow-xl shadow-white/5 active:scale-95 group"
-        >
-          <img 
-            src="https://www.google.com/favicon.ico" 
-            alt="Google" 
-            className="w-5 h-5 group-hover:rotate-12 transition-transform" 
-          />
-          Sign in with Google
-        </button>
+        <div className="space-y-4">
+          <button
+            onClick={login}
+            className="w-full flex items-center justify-center gap-3 bg-white text-sky-950 py-4 px-6 rounded-2xl font-bold hover:bg-sky-100 transition-all shadow-xl shadow-white/5 active:scale-95 group"
+          >
+            <img 
+              src="https://www.google.com/favicon.ico" 
+              alt="Google" 
+              className="w-5 h-5 group-hover:rotate-12 transition-transform" 
+            />
+            Sign in with Google
+          </button>
 
-        <p className="mt-8 text-xs text-sky-400/50 uppercase tracking-widest">
-          Secure Google OAuth implementation
+          <div className="flex items-center gap-4 my-4">
+            <div className="h-px flex-grow bg-white/10" />
+            <span className="text-xs text-sky-400/50 uppercase tracking-widest font-bold">OR</span>
+            <div className="h-px flex-grow bg-white/10" />
+          </div>
+
+          <button
+            onClick={loginAnonymous}
+            className="w-full py-4 px-6 rounded-2xl font-bold text-white border-2 border-white/10 hover:bg-white/5 transition-all active:scale-95"
+          >
+            Continue as Guest
+          </button>
+        </div>
+
+        <p className="mt-8 text-[10px] text-sky-400/50 uppercase tracking-widest leading-relaxed">
+          Quick & Secure Sign Up<br />
+          Experience aquarium life instantly
         </p>
       </motion.div>
     </div>

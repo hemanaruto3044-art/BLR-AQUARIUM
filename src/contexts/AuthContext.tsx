@@ -9,12 +9,14 @@ import {
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db, ADMIN_EMAILS } from '../lib/firebase';
 import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
+import { toast } from 'react-hot-toast';
 
 interface AuthContextType {
   user: FirebaseUser | null;
   isAdmin: boolean;
   loading: boolean;
   login: () => Promise<void>;
+  loginAnonymous: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -42,12 +44,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!userDoc.exists()) {
             await setDoc(userDocRef, {
               uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              displayName: firebaseUser.displayName,
-              photoURL: firebaseUser.photoURL,
+              email: firebaseUser.email || null,
+              displayName: firebaseUser.displayName || 'Guest',
+              photoURL: firebaseUser.photoURL || null,
               role: isUserAdmin ? 'admin' : 'user',
               createdAt: new Date().toISOString(),
-            });
+            }, { merge: true });
           }
         } catch (error) {
           if (error instanceof Error && error.message.includes('offline')) {
@@ -67,7 +69,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async () => {
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      console.error("Login error:", error);
+      if (error.code === 'auth/popup-blocked') {
+        toast.error('Login popup blocked by your browser. Please allow popups for this site.');
+      } else if (error.code === 'auth/cancelled-by-user') {
+        // Ignore user cancel
+      } else {
+        toast.error('Failed to log in with Google. Please try again.');
+      }
+      throw error;
+    }
+  };
+
+  const loginAnonymous = async () => {
+    try {
+      const { signInAnonymously } = await import('firebase/auth');
+      await signInAnonymously(auth);
+    } catch (error: any) {
+      console.error("Anonymous login error:", error);
+      toast.error('Failed to sign in as guest.');
+      throw error;
+    }
   };
 
   const logout = async () => {
@@ -75,7 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, loading, login, loginAnonymous, logout }}>
       {children}
     </AuthContext.Provider>
   );

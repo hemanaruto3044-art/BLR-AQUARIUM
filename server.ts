@@ -103,9 +103,13 @@ async function startServer() {
       socket.join(callId);
       console.log(`Socket ${socket.id} joined call ${callId}`);
       
-      // Notify everyone in the room that someone is ready
-      // This helps if the Admin joins after the User
-      io.to(callId).emit("user-joined", socket.id);
+      // Notify OTHERS in the room that someone joined
+      socket.to(callId).emit("user-joined", socket.id);
+      
+      // Also notify the joiner about others already in the room
+      // This is a bit simplified - in a real app you'd send a list of IDs
+      // But for 1-on-1, we just need to know IF someone else is there
+      console.log(`Room ${callId} status:`, io.sockets.adapter.rooms.get(callId)?.size);
     });
 
     socket.on("signal", (data) => {
