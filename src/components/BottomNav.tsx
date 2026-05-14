@@ -11,9 +11,25 @@ const BottomNav = () => {
   const { itemsCount } = useCart();
   const { wishlistItems } = useWishlist();
   const location = useLocation();
+  const [isCallActive, setIsCallActive] = React.useState(false);
 
-  // Hide BottomNav on admin path
-  if (location.pathname.startsWith('/admin')) {
+  React.useEffect(() => {
+    const checkCall = () => {
+      setIsCallActive(document.body.classList.contains('live-call-active'));
+    };
+
+    // Initial check
+    checkCall();
+
+    // Use MutationObserver to detect class changes on body
+    const observer = new MutationObserver(checkCall);
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+    return () => observer.disconnect();
+  }, []);
+
+  // Hide BottomNav on admin path or during active call
+  if (location.pathname.startsWith('/admin') || isCallActive) {
     return null;
   }
 

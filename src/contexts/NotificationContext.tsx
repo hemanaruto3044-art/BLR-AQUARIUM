@@ -77,9 +77,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // Only play sound if user is an admin
     if (!isAdmin) return;
 
-    // Prevent overlapping alerts within 10 seconds
+    // Prevent overlapping alerts within 5 seconds
     const now = Date.now();
-    if (now - lastPlayedTime.current < 10000) {
+    if (now - lastPlayedTime.current < 5000) {
       console.log('Skipping overlapping alert (throttled)');
       return;
     }

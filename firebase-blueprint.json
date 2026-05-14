@@ -93,6 +93,8 @@
         "userName": { "type": "string" },
         "status": { "type": "string", "enum": ["pending", "ongoing", "accepted", "rejected", "ended"] },
         "adminAlerted": { "type": "boolean" },
+        "hostPeerId": { "type": "string" },
+        "visitorPeerId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["productId", "userId", "status"]

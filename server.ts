@@ -1,6 +1,5 @@
 import express from "express";
 import { createServer } from "http";
-import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
@@ -12,13 +11,6 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const httpServer = createServer(app);
-  const io = new Server(httpServer, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"]
-    }
-  });
-
   const PORT = 3000;
 
   // Initialize Firebase Admin
@@ -94,41 +86,6 @@ async function startServer() {
   } else {
     console.warn("FIREBASE_SERVICE_ACCOUNT not found in environment. Push notifications disabled.");
   }
-
-  // Socket.io Signaling logic
-  io.on("connection", (socket) => {
-    console.log("Client connected:", socket.id);
-
-    socket.on("join-call", (callId) => {
-      socket.join(callId);
-      console.log(`Socket ${socket.id} joined call ${callId}`);
-      
-      // 1. Notify OTHERS in the room that someone joined
-      socket.to(callId).emit("user-joined", socket.id);
-      
-      // 2. Notify the JOINER about others already in the room
-      const room = io.sockets.adapter.rooms.get(callId);
-      if (room) {
-        for (const clientId of room) {
-          if (clientId !== socket.id) {
-            console.log(`Notifying joiner ${socket.id} about existing client ${clientId}`);
-            socket.emit("user-joined", clientId);
-          }
-        }
-      }
-    });
-
-    socket.on("signal", (data) => {
-      const { to, signal, ...rest } = data;
-      if (!to) return;
-      console.log(`Relaying signal from ${socket.id} to ${to}`);
-      io.to(to).emit("signal", { ...rest, signal, from: socket.id });
-    });
-
-    socket.on("disconnect", () => {
-      console.log("Client disconnected:", socket.id);
-    });
-  });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

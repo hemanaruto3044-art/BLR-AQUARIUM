@@ -57,7 +57,9 @@ service cloud.firestore {
       return data.keys().hasAll(['productId', 'userId', 'status']) &&
              data.productId is string &&
              data.userId == request.auth.uid &&
-             data.status in ['pending', 'ongoing', 'accepted', 'rejected', 'ended'];
+             data.status in ['pending', 'ongoing', 'accepted', 'rejected', 'ended'] &&
+             (!('hostPeerId' in data) || (data.hostPeerId is string && data.hostPeerId.size() < 256)) &&
+             (!('visitorPeerId' in data) || (data.visitorPeerId is string && data.visitorPeerId.size() < 256));
     }
 
     function isValidOrder(data) {
@@ -149,10 +151,15 @@ service cloud.firestore {
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidLiveCall(incoming());
       allow update: if isSignedIn() && (
-        // User can cancel their own
-        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'ended') ||
-        // Admin can accept/reject/end
-        (isAdmin() && incoming().diff(existing()).affectedKeys().hasAny(['status', 'adminAlerted', 'updatedAt']))
+        // User can update status to end or set their visitorPeerId
+        (isOwner(existing().userId) && (
+          (incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'ended') ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['visitorPeerId']))
+        )) ||
+        // Admin can update status, peer ID, or alerting
+        (isAdmin() && (
+          incoming().diff(existing()).affectedKeys().hasAny(['status', 'adminAlerted', 'updatedAt', 'hostPeerId'])
+        ))
       );
     }
 

@@ -175,6 +175,8 @@ const Admin = () => {
       setLiveCalls(calls);
       const newCalls = calls.filter(c => c.status === 'pending' && !c.adminAlerted);
       if (newCalls.length > 0) {
+        console.log('New live call(s) detected, triggering alert...');
+        playAlert(); 
         newCalls.forEach(async (c) => {
           await updateDoc(doc(db, 'live_calls', c.id), { adminAlerted: true });
         });
@@ -208,6 +210,8 @@ const Admin = () => {
       
       const newOrders = allOrders.filter(o => o.status === 'pending' && !o.adminAlerted);
       if (newOrders.length > 0) {
+        console.log('New order(s) detected, triggering alert...');
+        playAlert();
         newOrders.forEach(async (o) => {
           await updateDoc(doc(db, 'orders', o.id), { adminAlerted: true });
         });
@@ -232,6 +236,8 @@ const Admin = () => {
 
       const newPayments = allPayments.filter(p => p.status === 'pending' && !p.adminAlerted);
       if (newPayments.length > 0) {
+        console.log('New payment(s) detected, triggering alert...');
+        playAlert();
         newPayments.forEach(async (p) => {
           await updateDoc(doc(db, 'payments', p.id), { adminAlerted: true });
         });
