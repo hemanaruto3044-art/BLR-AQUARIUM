@@ -25,40 +25,23 @@ const Login = () => {
           <img src="https://i.ibb.co/6RCCdcFt/IMG-20260511-WA0010.jpg" alt="Logo" className="w-full h-full object-cover" />
         </div>
         
-        <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">Welcome Back</h1>
-        <p className="text-sky-200/60 mb-8 max-w-[280px] mx-auto text-sm">
-          Sign in to your account to explore rare species and manage your aquarium.
+        <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">Welcome</h1>
+        <p className="text-sky-200/60 mb-10 max-w-[280px] mx-auto text-sm">
+          Explore rare species and manage your aquarium.
         </p>
 
-        <div className="space-y-4">
-          <button
-            onClick={login}
-            className="w-full flex items-center justify-center gap-3 bg-white text-sky-950 py-4 px-6 rounded-2xl font-bold hover:bg-sky-100 transition-all shadow-xl shadow-white/5 active:scale-95 group"
-          >
-            <img 
-              src="https://www.google.com/favicon.ico" 
-              alt="Google" 
-              className="w-5 h-5 group-hover:rotate-12 transition-transform" 
-            />
-            Sign in with Google
-          </button>
-
-          <div className="flex items-center gap-4 my-4">
-            <div className="h-px flex-grow bg-white/10" />
-            <span className="text-xs text-sky-400/50 uppercase tracking-widest font-bold">OR</span>
-            <div className="h-px flex-grow bg-white/10" />
-          </div>
-
+        <div className="space-y-6">
           <button
             onClick={loginAnonymous}
-            className="w-full py-4 px-6 rounded-2xl font-bold text-white border-2 border-white/10 hover:bg-white/5 transition-all active:scale-95"
+            className="w-full bg-cyan-600 text-white py-4 px-6 rounded-2xl font-bold hover:bg-cyan-500 transition-all shadow-xl shadow-cyan-600/20 active:scale-95 group flex items-center justify-center gap-2"
           >
+            <LogIn className="w-5 h-5" />
             Continue as Guest
           </button>
         </div>
 
-        <p className="mt-8 text-[10px] text-sky-400/50 uppercase tracking-widest leading-relaxed">
-          Quick & Secure Sign Up<br />
+        <p className="mt-12 text-[10px] text-sky-400/50 uppercase tracking-widest leading-relaxed">
+          Quick & Secure Access<br />
           Experience aquarium life instantly
         </p>
       </motion.div>

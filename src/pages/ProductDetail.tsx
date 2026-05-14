@@ -52,73 +52,76 @@ const ProductDetail = () => {
   const [showCallUI, setShowCallUI] = useState(false);
 
   useEffect(() => {
-    const fetchProduct = async () => {
-      if (!id) return;
-      const path = `products/${id}`;
-      try {
-        const docRef = doc(db, 'products', id);
-        const snapshot = await getDoc(docRef);
-        if (snapshot.exists()) {
-          const data = { id: snapshot.id, ...snapshot.data() } as any;
-          
-          if (data.isActive === false && !isAdmin) {
-            toast.error('This product is currently unavailable');
-            navigate('/');
-            return;
-          }
-
-          setProduct(data);
-          if (data.images?.length > 0) {
-            setActiveMediaIndex(0);
-          }
-          
-          // Fetch related products
-          const relatedQuery = query(
-            collection(db, 'products'),
-            where('category', '==', data.category),
-            where('isActive', '==', true),
-            limit(10)
-          );
-          const relatedSnapshot = await getDocs(relatedQuery);
-          const related = relatedSnapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() }))
-            .filter((p: any) => p.id !== id)
-            .slice(0, 4);
-          setRelatedProducts(related);
-
-          // Fetch reviews
-          const reviewsQuery = query(
-            collection(db, 'reviews'),
-            where('productId', '==', id),
-            limit(20)
-          );
-          
-          const unsubscribeReviews = onSnapshot(reviewsQuery, (snapshot) => {
-            const revs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setReviews(revs.sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
-          }, (err) => {
-            handleFirestoreError(err, OperationType.GET, 'reviews');
-          });
-
-          return () => unsubscribeReviews();
+    if (!id) return;
+    const path = `products/${id}`;
+    
+    // Listen to product changes
+    const unsubscribeProduct = onSnapshot(doc(db, 'products', id), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = { id: snapshot.id, ...snapshot.data() } as any;
+        
+        if (data.isActive === false && !isAdmin) {
+          toast.error('This product is currently unavailable');
+          navigate('/');
+          return;
         }
-      } catch (error) {
-        handleFirestoreError(error, OperationType.GET, path);
-      } finally {
+
+        setProduct(data);
+        if (data.images?.length > 0 && activeMediaIndex === 0) {
+          setActiveMediaIndex(0);
+        }
+        fetchRelated(data.category);
+        setLoading(false);
+      } else {
         setLoading(false);
       }
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, path);
+    });
+
+    // Fetch related products
+    const fetchRelated = async (category: string) => {
+      const relatedQuery = query(
+        collection(db, 'products'),
+        where('category', '==', category),
+        where('isActive', '==', true),
+        limit(10)
+      );
+      const relatedSnapshot = await getDocs(relatedQuery);
+      const related = relatedSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter((p: any) => p.id !== id)
+        .slice(0, 4);
+      setRelatedProducts(related);
     };
 
-    fetchProduct();
+    // Listen to reviews
+    const reviewsQuery = query(
+      collection(db, 'reviews'),
+      where('productId', '==', id),
+      limit(20)
+    );
+    
+    const unsubscribeReviews = onSnapshot(reviewsQuery, (snapshot) => {
+      const revs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setReviews(revs.sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'reviews');
+    });
 
+    // Listen to settings
     const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
       if (snapshot.exists()) {
         setTestModeEnabled(snapshot.data().testButtonEnabled);
       }
     });
 
-    return () => unsubscribeSettings();
-  }, [id, isAdmin, navigate]); // and other deps
+    return () => {
+      unsubscribeProduct();
+      unsubscribeReviews();
+      unsubscribeSettings();
+    };
+  }, [id, isAdmin, navigate]);
 
   // Listen to active live call for this user and product
   useEffect(() => {
@@ -255,6 +258,13 @@ const ProductDetail = () => {
 
     if (!newReview.comment.trim()) {
       toast.error('Please enter a comment');
+      return;
+    }
+
+    // Check if user already reviewed
+    const hasReviewed = reviews.some(r => r.userId === user.uid);
+    if (hasReviewed) {
+      toast.error('You have already reviewed this product');
       return;
     }
 

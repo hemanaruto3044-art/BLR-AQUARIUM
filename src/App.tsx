@@ -30,14 +30,19 @@ import Tracking from './pages/Tracking';
 import Giveaway from './pages/Giveaway';
 import Admin from './pages/Admin';
 import Login from './pages/Login';
+import AdminLogin from './pages/AdminLogin';
 import Search from './pages/Search';
 
 const ProtectedRoute = ({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) => {
   const { user, isAdmin, loading } = useAuth();
   
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-sky-950 text-white">Loading...</div>;
+  
+  if (adminOnly) {
+    return isAdmin ? <>{children}</> : <Navigate to="/admin/login" />;
+  }
+  
   if (!user) return <Navigate to="/login" />;
-  if (adminOnly && !isAdmin) return <Navigate to="/" />;
   
   return <>{children}</>;
 };
@@ -79,6 +84,7 @@ function AppContent() {
             <Routes location={location}>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/search" element={<Search />} />
               <Route path="/wishlist" element={<Wishlist />} />
               <Route path="/product/:id" element={<ProductDetail />} />

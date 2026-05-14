@@ -24,7 +24,7 @@ const Navbar = () => {
 
   React.useEffect(() => {
     if (logoTaps === 3) {
-      navigate('/admin');
+      navigate('/admin/login');
       setLogoTaps(0);
       return;
     }

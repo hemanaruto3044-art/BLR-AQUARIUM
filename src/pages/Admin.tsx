@@ -14,34 +14,15 @@ import {
 import { db } from '../lib/firebase';
 import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Bell, 
-  Video, 
-  Package, 
-  Users, 
-  Settings, 
-  Plus, 
-  Trash2, 
-  Check, 
-  X,
-  PlusCircle,
-  LayoutGrid,
-  Bug,
-  Sliders,
-  Eye,
-  EyeOff,
-  QrCode,
-  Zap,
-  ShoppingBag,
-  CreditCard
-} from 'lucide-react';
+import { Bell, Video, Package, Users, Settings, Plus, Trash2, Check, X, PlusCircle, LayoutGrid, Bug, Sliders, Eye, EyeOff, QrCode, Zap, ShoppingBag, CreditCard, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { cn, formatDate } from '../lib/utils';
 import LiveCall from '../components/LiveCall';
-
 import { useNotifications } from '../contexts/NotificationContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const Admin = () => {
+  const { user } = useAuth();
   const { playAlert, requestPermission, permission } = useNotifications();
   const [activeTab, setActiveTab] = useState<'live' | 'products' | 'categories' | 'orders' | 'giveaways' | 'system' | 'payments'>('live');
 
@@ -275,7 +256,7 @@ const Admin = () => {
       unsubscribePayments();
       unsubscribeSettings();
     };
-  }, []);
+  }, [user]);
 
   const handleUpdateCallStatus = async (id: string, status: string) => {
     const path = `live_calls/${id}`;
@@ -1476,17 +1457,5 @@ const Admin = () => {
     </div>
   );
 };
-
-// Internal icon proxy
-const CheckCircle2 = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" /><path d="m9 12 2 2 4-4" />
-  </svg>
-);
-const AlertCircle = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-  </svg>
-);
 
 export default Admin;
