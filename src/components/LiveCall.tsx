@@ -17,6 +17,7 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
   const [micActive, setMicActive] = useState(true);
   const [videoActive, setVideoActive] = useState(true);
   const [connected, setConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'initializing' | 'signaling' | 'connecting' | 'connected'>('initializing');
   
   const myVideo = useRef<HTMLVideoElement>(null);
   const remoteVideo = useRef<HTMLVideoElement>(null);
@@ -26,9 +27,12 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
   useEffect(() => {
     console.log(`LiveCall mounting. isHost: ${isHost}, callId: ${callId}`);
     
+    let isMounted = true;
+
     // 1. Get User Media
     const startMedia = async () => {
       try {
+        setConnectionStatus('initializing');
         console.log('Requesting media devices...');
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           throw new Error('MediaDevices API not supported in this browser/context');
@@ -43,19 +47,21 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
               height: { ideal: 720 },
               facingMode: isHost ? 'environment' : 'user'
             }, 
-            audio: true 
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
           });
         } catch (err1) {
-          console.warn('Attempt 1 failed, trying Attempt 2 (basic constraints)...', err1);
+          console.warn('Attempt 1 failed, trying Attempt 2...', err1);
           try {
-            // Attempt 2: Basic video/audio with facing mode
             currentStream = await navigator.mediaDevices.getUserMedia({ 
               video: { facingMode: isHost ? 'environment' : 'user' }, 
               audio: true 
             });
           } catch (err2) {
-            console.warn('Attempt 2 failed, trying Attempt 3 (absolute minimum)...', err2);
-            // Attempt 3: Just any video and audio
+            console.warn('Attempt 2 failed, trying Attempt 3...', err2);
             currentStream = await navigator.mediaDevices.getUserMedia({ 
               video: true, 
               audio: true 
@@ -63,11 +69,11 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
           }
         }
         
+        if (!isMounted) return;
+
         console.log('Media devices secured');
         setStream(currentStream);
-        if (myVideo.current) {
-          myVideo.current.srcObject = currentStream;
-        }
+        setConnectionStatus('signaling');
 
         // 2. Initialize Socket
         console.log('Connecting to signaling server...');
@@ -82,6 +88,8 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
           { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' },
         ];
 
         socket.on('connect', () => {
@@ -90,48 +98,52 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
         });
 
         socket.on('user-joined', (userId) => {
+          if (!isMounted) return;
           console.log('Event: user-joined', userId);
+          setConnectionStatus('connecting');
           if (isHost) {
-            console.log('Host detected someone joined. Initiating connection to:', userId);
             initiatePeer(userId, currentStream, iceServers);
           } else {
-            // User detected Admin (Host) joined. Send "iam-here" to trigger initiation from Admin
-            console.log('Participant detected someone joined. Signaling presence...');
             socket.emit('signal', {
               to: userId,
-              from: socket.id,
-              type: 'presence' // Custom type to say I am here
+              type: 'presence' 
             });
           }
         });
 
         socket.on('signal', (data) => {
+          if (!isMounted) return;
           const { from, signal, type } = data;
           
           if (type === 'presence') {
             if (isHost) {
-              console.log('Host received presence signal from:', from, '. Initiating connection...');
+              setConnectionStatus('connecting');
               initiatePeer(from, currentStream, iceServers);
             }
             return;
           }
 
-          console.log('Received signal from', from);
-          if (peerRef.current) {
-            peerRef.current.signal(signal);
-          } else if (!isHost) {
-            console.log('Participant receiving initial signal. Accepting...');
-            acceptPeer(from, signal, currentStream, iceServers);
+          if (signal) {
+            setConnectionStatus('connecting');
+            if (peerRef.current) {
+              peerRef.current.signal(signal);
+            } else if (!isHost) {
+              acceptPeer(from, signal, currentStream, iceServers);
+            }
           }
         });
 
         socket.on('disconnect', () => {
           console.log('Disconnected from signaling server');
-          setConnected(false);
+          if (isMounted) {
+            setConnected(false);
+            setConnectionStatus('signaling');
+          }
         });
 
       } catch (err: any) {
         console.error('Failed to initialize call:', err);
+        if (!isMounted) return;
         const errorMsg = err.name === 'NotAllowedError' 
           ? 'Camera/Microphone access denied. Please enable permissions.' 
           : err.name === 'NotFoundError'
@@ -145,6 +157,7 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
     startMedia();
 
     return () => {
+      isMounted = false;
       console.log('LiveCall unmounting. Cleaning up...');
       stream?.getTracks().forEach(track => track.stop());
       socketRef.current?.disconnect();
@@ -152,71 +165,88 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
     };
   }, [callId, isHost]);
 
+  // Sync streams to refs (extra safety for React 19)
+  useEffect(() => {
+    if (stream && myVideo.current) {
+      myVideo.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  useEffect(() => {
+    if (remoteStream && remoteVideo.current) {
+      console.log('Syncing remote stream to video element');
+      remoteVideo.current.srcObject = remoteStream;
+      if (remoteVideo.current.paused) {
+        remoteVideo.current.play().catch(e => console.error('Auto-play blocked:', e));
+      }
+    }
+  }, [remoteStream]);
+
   const initiatePeer = (userId: string, currentStream: MediaStream, iceServers: any[]) => {
+    if (peerRef.current) return; // Already initiating
     console.log('Creating initiator peer...');
     const peer = new Peer({
       initiator: true,
-      trickle: false,
+      trickle: true,
       stream: currentStream,
       config: { iceServers }
     });
 
+    peer.on('connect', () => {
+      console.log('Peer connected (initiator)');
+      setConnected(true);
+      setConnectionStatus('connected');
+    });
+
     peer.on('signal', (data) => {
-      console.log('Initiator generated signal, sending to', userId);
       socketRef.current?.emit('signal', {
         to: userId,
-        from: socketRef.current.id,
         signal: data
       });
     });
 
-    peer.on('stream', (remoteStream) => {
+    peer.on('stream', (rStream) => {
       console.log('Initiator received remote stream');
-      setRemoteStream(remoteStream);
-      if (remoteVideo.current) {
-        remoteVideo.current.srcObject = remoteStream;
-      }
-      setConnected(true);
+      setRemoteStream(rStream);
     });
 
     peer.on('error', (err) => {
       console.error('Peer error (initiator):', err);
-      toast.error('Connection error occurred');
     });
 
     peerRef.current = peer;
   };
 
   const acceptPeer = (userId: string, incomingSignal: any, currentStream: MediaStream, iceServers: any[]) => {
+    if (peerRef.current) return; // Already accepted or active
     console.log('Creating participant peer to accept signal from', userId);
     const peer = new Peer({
       initiator: false,
-      trickle: false,
+      trickle: true,
       stream: currentStream,
       config: { iceServers }
     });
 
+    peer.on('connect', () => {
+      console.log('Peer connected (participant)');
+      setConnected(true);
+      setConnectionStatus('connected');
+    });
+
     peer.on('signal', (data) => {
-      console.log('Participant generated signal, sending response to', userId);
       socketRef.current?.emit('signal', {
         to: userId,
-        from: socketRef.current?.id,
         signal: data
       });
     });
 
-    peer.on('stream', (remoteStream) => {
+    peer.on('stream', (rStream) => {
       console.log('Participant received remote stream');
-      setRemoteStream(remoteStream);
-      if (remoteVideo.current) {
-        remoteVideo.current.srcObject = remoteStream;
-      }
-      setConnected(true);
+      setRemoteStream(rStream);
     });
 
     peer.on('error', (err) => {
       console.error('Peer error (participant):', err);
-      toast.error('Connection error occurred');
     });
 
     peer.signal(incomingSignal);
@@ -250,12 +280,17 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
           className="w-full h-full object-cover"
         />
         {!connected && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-xl">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-xl z-20">
              <div className="w-20 h-20 bg-cyan-500/10 rounded-full flex items-center justify-center mb-4 animate-pulse">
                 <User className="w-10 h-10 text-cyan-400" />
              </div>
-             <p className="text-white font-black uppercase tracking-widest animate-pulse">
-                Establishing Link...
+             <p className="text-white font-black uppercase tracking-widest animate-pulse text-center px-4">
+                {connectionStatus === 'initializing' && 'Initializing Camera...'}
+                {connectionStatus === 'signaling' && 'Waiting for Peer...'}
+                {connectionStatus === 'connecting' && 'Establishing Secure Link...'}
+             </p>
+             <p className="text-zinc-500 text-[10px] uppercase mt-4 tracking-tighter">
+                ID: {callId.slice(-6)} | {isHost ? 'HOST' : 'PEER'}
              </p>
           </div>
         )}

@@ -113,9 +113,9 @@ async function startServer() {
     });
 
     socket.on("signal", (data) => {
-      const { to, signal, from } = data;
-      console.log(`Relaying signal from ${from} to ${to}`);
-      io.to(to).emit("signal", { signal, from: socket.id });
+      const { to, ...rest } = data;
+      console.log(`Relaying signal from ${socket.id} to ${to}`);
+      io.to(to).emit("signal", { ...rest, from: socket.id });
     });
 
     socket.on("disconnect", () => {
