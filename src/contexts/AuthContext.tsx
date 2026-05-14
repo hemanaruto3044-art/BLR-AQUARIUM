@@ -72,13 +72,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await signInWithPopup(auth, provider);
     } catch (error: any) {
-      console.error("Login error:", error);
+      console.error("Login Error Details:", {
+        code: error.code,
+        message: error.message,
+        customData: error.customData,
+      });
+      
       if (error.code === 'auth/popup-blocked') {
-        toast.error('Login popup blocked by your browser. Please allow popups for this site.');
+        toast.error('Login popup blocked! Please allow popups for this site in your browser settings.');
       } else if (error.code === 'auth/cancelled-by-user') {
-        // Ignore user cancel
+        toast.error('Login cancelled.');
+      } else if (error.code === 'auth/unauthorized-domain') {
+        toast.error(`Domain "${window.location.hostname}" is not authorized. Add it to Firebase Console > Auth > Settings.`);
       } else {
-        toast.error('Failed to log in with Google. Please try again.');
+        toast.error(`Login failed: ${error.message || 'Unknown error'}`);
       }
       throw error;
     }
