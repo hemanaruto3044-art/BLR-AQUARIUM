@@ -17,7 +17,9 @@ import {
   Bug,
   Heart,
   Loader2,
-  X
+  X,
+  Star,
+  MessageSquare
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useCart } from '../contexts/CartContext';
@@ -36,6 +38,9 @@ const ProductDetail = () => {
   const [isZoomed, setIsZoomed] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [relatedProducts, setRelatedProducts] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [newReview, setNewReview] = useState({ rating: 5, comment: '' });
   const { user, isAdmin } = useAuth();
   const { addToCart } = useCart();
   const { addToWishlist, removeFromWishlist, isInWishlist } = useWishlist();
@@ -66,6 +71,36 @@ const ProductDetail = () => {
           if (data.images?.length > 0) {
             setActiveMediaIndex(0);
           }
+          
+          // Fetch related products
+          const relatedQuery = query(
+            collection(db, 'products'),
+            where('category', '==', data.category),
+            where('isActive', '==', true),
+            limit(10)
+          );
+          const relatedSnapshot = await getDocs(relatedQuery);
+          const related = relatedSnapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter((p: any) => p.id !== id)
+            .slice(0, 4);
+          setRelatedProducts(related);
+
+          // Fetch reviews
+          const reviewsQuery = query(
+            collection(db, 'reviews'),
+            where('productId', '==', id),
+            limit(20)
+          );
+          
+          const unsubscribeReviews = onSnapshot(reviewsQuery, (snapshot) => {
+            const revs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setReviews(revs.sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+          }, (err) => {
+            handleFirestoreError(err, OperationType.GET, 'reviews');
+          });
+
+          return () => unsubscribeReviews();
         }
       } catch (error) {
         handleFirestoreError(error, OperationType.GET, path);
@@ -207,6 +242,60 @@ const ProductDetail = () => {
       handleFirestoreError(error, OperationType.CREATE, path);
     } finally {
       setSendingTest(false);
+    }
+  };
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) {
+      toast.error('Please login to leave a review');
+      navigate('/login');
+      return;
+    }
+
+    if (!newReview.comment.trim()) {
+      toast.error('Please enter a comment');
+      return;
+    }
+
+    setIsSubmittingReview(true);
+    const path = 'reviews';
+    try {
+      await addDoc(collection(db, path), {
+        productId: id,
+        userId: user.uid,
+        userName: user.displayName || user.email,
+        userPhoto: user.photoURL || '',
+        rating: newReview.rating,
+        comment: newReview.comment,
+        createdAt: serverTimestamp(),
+      });
+
+      // 2. Update product stats
+      const productRef = doc(db, 'products', id!);
+      const currentReviewCount = product.reviewCount || 0;
+      const currentAvgRating = product.averageRating || 0;
+      const newReviewCount = currentReviewCount + 1;
+      const newAverageRating = (currentAvgRating * currentReviewCount + newReview.rating) / newReviewCount;
+
+      await updateDoc(productRef, {
+        reviewCount: newReviewCount,
+        averageRating: parseFloat(newAverageRating.toFixed(1))
+      });
+
+      // Update local state to reflect changes immediately
+      setProduct((prev: any) => ({
+        ...prev,
+        reviewCount: newReviewCount,
+        averageRating: newAverageRating
+      }));
+
+      toast.success('Review submitted successfully!');
+      setNewReview({ rating: 5, comment: '' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    } finally {
+      setIsSubmittingReview(false);
     }
   };
 
@@ -379,9 +468,28 @@ const ProductDetail = () => {
                 </motion.div>
               )}
             </div>
-            <h1 className="text-4xl md:text-6xl font-black text-white tracking-tighter mb-4">
+            <h1 className="text-4xl md:text-6xl font-black text-white tracking-tighter mb-2">
               {product.name.toUpperCase()}
             </h1>
+            <div className="flex items-center gap-4 mb-4">
+              <div className="flex items-center gap-1">
+                {[...Array(5)].map((_, i) => {
+                  const avg = reviews.length > 0 ? reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length : 0;
+                  return (
+                    <Star 
+                      key={i} 
+                      className={cn(
+                        "w-4 h-4",
+                        i < Math.round(avg) ? "fill-cyan-500 text-cyan-500" : "text-sky-800"
+                      )} 
+                    />
+                  );
+                })}
+              </div>
+              <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">
+                {reviews.length} {reviews.length === 1 ? 'Review' : 'Reviews'}
+              </span>
+            </div>
             <div className="flex items-center gap-4 text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-500">
               ₹{product.price.toLocaleString()}
             </div>
@@ -469,6 +577,116 @@ const ProductDetail = () => {
         </motion.div>
       </div>
 
+      {/* Reviews Section */}
+      <div className="mt-32">
+        <div className="mb-12">
+          <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-[0.3em] mb-4 block">Customer Feedback</span>
+          <h2 className="text-3xl md:text-4xl font-black text-white tracking-tighter uppercase italic">PRODUCT <span className="text-sky-800 stroke-cyan-500 stroke-1">REVIEWS</span></h2>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+          {/* Review Stats & Form */}
+          <div className="space-y-8">
+            <div className="bg-sky-900/20 border border-sky-800/50 rounded-2xl p-6 backdrop-blur-sm">
+              <h3 className="text-lg font-black text-white uppercase italic tracking-wider mb-4">Share your experience</h3>
+              <form onSubmit={handleSubmitReview} className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black text-sky-400 uppercase tracking-widest block mb-1">Rating</label>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setNewReview(prev => ({ ...prev, rating: star }))}
+                        className={cn(
+                          "p-1 transition-all",
+                          newReview.rating >= star ? "text-cyan-500 hover:scale-110" : "text-sky-800 hover:text-sky-600"
+                        )}
+                      >
+                        <Star className={cn("w-6 h-6", newReview.rating >= star && "fill-current")} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-sky-400 uppercase tracking-widest block mb-1">Comment</label>
+                  <textarea
+                    value={newReview.comment}
+                    onChange={(e) => setNewReview(prev => ({ ...prev, comment: e.target.value }))}
+                    placeholder="Tell us what you think about this product..."
+                    className="w-full bg-sky-950/50 border border-sky-800 rounded-xl p-3 text-sm text-white placeholder:text-sky-700 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 min-h-[120px] resize-none"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSubmittingReview}
+                  className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-sky-800 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-cyan-600/20 flex items-center justify-center gap-2"
+                >
+                  {isSubmittingReview ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <MessageSquare className="w-4 h-4" />
+                  )}
+                  Submit Review
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* Review List */}
+          <div className="lg:col-span-2 space-y-6">
+            {reviews.length > 0 ? (
+              reviews.map((review) => (
+                <motion.div
+                  key={review.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-sky-900/10 border border-sky-800/30 rounded-2xl p-6"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <img 
+                        src={review.userPhoto || `https://ui-avatars.com/api/?name=${review.userName}`} 
+                        alt={review.userName}
+                        className="w-10 h-10 rounded-full border border-sky-800"
+                      />
+                      <div>
+                        <h4 className="text-sm font-bold text-white tracking-tight">{review.userName}</h4>
+                        <p className="text-[10px] text-sky-500 uppercase tracking-widest">
+                          {review.createdAt?.toDate ? review.createdAt.toDate().toLocaleDateString() : 'Just now'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      {[...Array(5)].map((_, i) => (
+                        <Star 
+                          key={i} 
+                          className={cn(
+                            "w-3 h-3",
+                            i < review.rating ? "fill-cyan-500 text-cyan-500" : "text-sky-900"
+                          )} 
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-sky-200/70 text-sm leading-relaxed italic">
+                    "{review.comment}"
+                  </p>
+                </motion.div>
+              ))
+            ) : (
+              <div className="text-center py-20 bg-sky-900/10 border border-dashed border-sky-800/50 rounded-2xl">
+                <MessageSquare className="w-10 h-10 text-sky-800 mx-auto mb-4" />
+                <h4 className="text-lg font-bold text-sky-700 uppercase italic">No reviews yet</h4>
+                <p className="text-sm text-sky-800/60 max-w-xs mx-auto mt-2">
+                  Be the first to share your experience with this {product.category.toLowerCase()}.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Related Products Section */}
       {relatedProducts.length > 0 && (
         <div className="mt-32">
@@ -478,10 +696,10 @@ const ProductDetail = () => {
               <h2 className="text-3xl md:text-4xl font-black text-white tracking-tighter uppercase italic">RELATED <span className="text-sky-800 stroke-cyan-500 stroke-1">COLLECTIONS</span></h2>
             </div>
             <button 
-              onClick={() => navigate(`/categories?category=${product.category}`)}
+              onClick={() => navigate(`/?category=${encodeURIComponent(product.category)}#categories`)}
               className="text-[10px] font-black text-sky-500 hover:text-cyan-400 uppercase tracking-widest transition-colors mb-2"
             >
-              View Category
+              View All {product.category}
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

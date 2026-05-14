@@ -8,6 +8,7 @@ import { NotificationProvider, useNotifications } from './contexts/NotificationC
 import Navbar from './components/Navbar';
 import BottomNav from './components/BottomNav';
 import Footer from './components/Footer';
+import ScrollToTop from './components/ScrollToTop';
 import FishBackground from './components/FishBackground';
 import { seedDatabase } from './lib/seed';
 import { cn } from './lib/utils';
@@ -29,6 +30,7 @@ import Tracking from './pages/Tracking';
 import Giveaway from './pages/Giveaway';
 import Admin from './pages/Admin';
 import Login from './pages/Login';
+import Search from './pages/Search';
 
 const ProtectedRoute = ({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) => {
   const { user, isAdmin, loading } = useAuth();
@@ -55,6 +57,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-transparent text-white selection:bg-cyan-500 selection:text-white relative">
+      <ScrollToTop />
       <FishBackground />
       <Navbar />
       <main className={cn(
@@ -76,6 +79,7 @@ function AppContent() {
             <Routes location={location}>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/search" element={<Search />} />
               <Route path="/wishlist" element={<Wishlist />} />
               <Route path="/product/:id" element={<ProductDetail />} />
               <Route path="/offers" element={<Offers />} />

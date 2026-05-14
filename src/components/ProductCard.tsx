@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Eye, ShoppingCart, Video, Heart, Maximize2 } from 'lucide-react';
+import { Eye, ShoppingCart, Video, Heart, Maximize2, Star } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
 import { cn } from '../lib/utils';
@@ -17,6 +17,8 @@ interface ProductCardProps {
     isLiveEnabled?: boolean;
     stock: number;
     description?: string;
+    averageRating?: number;
+    reviewCount?: number;
   };
 }
 
@@ -24,6 +26,7 @@ const ProductCard = ({ product }: ProductCardProps) => {
   const { addToCart } = useCart();
   const { addToWishlist, removeFromWishlist, isInWishlist } = useWishlist();
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
+  const navigate = useNavigate();
   const isWishlisted = isInWishlist(product.id);
 
   return (
@@ -32,7 +35,8 @@ const ProductCard = ({ product }: ProductCardProps) => {
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
-        className="group bg-sky-900/30 border border-sky-800/50 rounded-2xl overflow-hidden backdrop-blur-sm hover:border-cyan-500/50 transition-all flex flex-col"
+        className="group bg-sky-900/30 border border-sky-800/50 rounded-2xl overflow-hidden backdrop-blur-sm hover:border-cyan-500/50 transition-all flex flex-col cursor-pointer"
+        onClick={() => navigate(`/product/${product.id}`)}
       >
         <div className="relative aspect-square overflow-hidden bg-sky-900/50">
           <img
@@ -100,6 +104,22 @@ const ProductCard = ({ product }: ProductCardProps) => {
             <h3 className="text-lg font-semibold text-white group-hover:text-cyan-200 transition-colors leading-tight">
               {product.name}
             </h3>
+            {product.reviewCount ? (
+              <div className="flex items-center gap-1 mt-1">
+                <div className="flex items-center">
+                  {[...Array(5)].map((_, i) => (
+                    <Star 
+                      key={i} 
+                      className={cn(
+                        "w-3 h-3",
+                        i < Math.round(product.averageRating || 0) ? "fill-cyan-500 text-cyan-500" : "text-sky-800"
+                      )} 
+                    />
+                  ))}
+                </div>
+                <span className="text-[10px] text-sky-400 font-bold ml-1">({product.reviewCount})</span>
+              </div>
+            ) : null}
           </div>
           
           <div className="mt-auto flex items-end justify-between">

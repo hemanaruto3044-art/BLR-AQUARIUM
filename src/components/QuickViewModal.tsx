@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ShoppingCart, Video, Heart, ShieldCheck, Truck, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, ShoppingCart, Video, Heart, ShieldCheck, Truck, ChevronLeft, ChevronRight, Star } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
 import { cn } from '../lib/utils';
@@ -118,9 +118,27 @@ const QuickViewModal: React.FC<QuickViewModalProps> = ({ product, isOpen, onClos
                     </div>
                   )}
                 </div>
-                <h2 className="text-xl md:text-4xl font-black text-white tracking-tighter mb-2 md:mb-4 leading-tight">
-                  {product.name.toUpperCase()}
-                </h2>
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-xl md:text-3xl font-black text-white tracking-tighter leading-tight">
+                    {product.name.toUpperCase()}
+                  </h2>
+                </div>
+                {product.reviewCount ? (
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="flex items-center gap-0.5">
+                      {[...Array(5)].map((_, i) => (
+                        <Star 
+                          key={i} 
+                          className={cn(
+                            "w-3 h-3",
+                            i < Math.round(product.averageRating || 0) ? "fill-cyan-500 text-cyan-500" : "text-sky-800"
+                          )} 
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-sky-400 font-bold uppercase tracking-widest">({product.reviewCount} Reviews)</span>
+                  </div>
+                ) : null}
                 <div className="text-xl md:text-2xl font-bold text-cyan-400">
                   ₹{product.price.toLocaleString()}
                 </div>

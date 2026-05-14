@@ -34,7 +34,7 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
           video: {
             width: { ideal: 1280 },
             height: { ideal: 720 },
-            facingMode: 'user'
+            facingMode: isHost ? 'environment' : 'user'
           }, 
           audio: true 
         });
