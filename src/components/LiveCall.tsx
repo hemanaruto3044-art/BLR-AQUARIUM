@@ -30,14 +30,38 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
     const startMedia = async () => {
       try {
         console.log('Requesting media devices...');
-        const currentStream = await navigator.mediaDevices.getUserMedia({ 
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: isHost ? 'environment' : 'user'
-          }, 
-          audio: true 
-        });
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('MediaDevices API not supported in this browser/context');
+        }
+
+        let currentStream: MediaStream;
+        try {
+          // Attempt 1: High quality + facing mode
+          currentStream = await navigator.mediaDevices.getUserMedia({ 
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: isHost ? 'environment' : 'user'
+            }, 
+            audio: true 
+          });
+        } catch (err1) {
+          console.warn('Attempt 1 failed, trying Attempt 2 (basic constraints)...', err1);
+          try {
+            // Attempt 2: Basic video/audio with facing mode
+            currentStream = await navigator.mediaDevices.getUserMedia({ 
+              video: { facingMode: isHost ? 'environment' : 'user' }, 
+              audio: true 
+            });
+          } catch (err2) {
+            console.warn('Attempt 2 failed, trying Attempt 3 (absolute minimum)...', err2);
+            // Attempt 3: Just any video and audio
+            currentStream = await navigator.mediaDevices.getUserMedia({ 
+              video: true, 
+              audio: true 
+            });
+          }
+        }
         
         console.log('Media devices secured');
         setStream(currentStream);
@@ -106,9 +130,14 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
           setConnected(false);
         });
 
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to initialize call:', err);
-        toast.error('Camera/Microphone access denied or failed.');
+        const errorMsg = err.name === 'NotAllowedError' 
+          ? 'Camera/Microphone access denied. Please enable permissions.' 
+          : err.name === 'NotFoundError'
+          ? 'No camera or microphone found.'
+          : 'Failed to access camera/microphone. please open in new tab.';
+        toast.error(errorMsg);
         onEnd();
       }
     };
