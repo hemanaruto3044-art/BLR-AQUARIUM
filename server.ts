@@ -103,19 +103,26 @@ async function startServer() {
       socket.join(callId);
       console.log(`Socket ${socket.id} joined call ${callId}`);
       
-      // Notify OTHERS in the room that someone joined
+      // 1. Notify OTHERS in the room that someone joined
       socket.to(callId).emit("user-joined", socket.id);
       
-      // Also notify the joiner about others already in the room
-      // This is a bit simplified - in a real app you'd send a list of IDs
-      // But for 1-on-1, we just need to know IF someone else is there
-      console.log(`Room ${callId} status:`, io.sockets.adapter.rooms.get(callId)?.size);
+      // 2. Notify the JOINER about others already in the room
+      const room = io.sockets.adapter.rooms.get(callId);
+      if (room) {
+        for (const clientId of room) {
+          if (clientId !== socket.id) {
+            console.log(`Notifying joiner ${socket.id} about existing client ${clientId}`);
+            socket.emit("user-joined", clientId);
+          }
+        }
+      }
     });
 
     socket.on("signal", (data) => {
-      const { to, ...rest } = data;
+      const { to, signal, ...rest } = data;
+      if (!to) return;
       console.log(`Relaying signal from ${socket.id} to ${to}`);
-      io.to(to).emit("signal", { ...rest, from: socket.id });
+      io.to(to).emit("signal", { ...rest, signal, from: socket.id });
     });
 
     socket.on("disconnect", () => {

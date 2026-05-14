@@ -90,6 +90,7 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
           { urls: 'stun:stun2.l.google.com:19302' },
           { urls: 'stun:stun3.l.google.com:19302' },
           { urls: 'stun:stun4.l.google.com:19302' },
+          { urls: 'stun:stun.services.mozilla.com' },
         ];
 
         socket.on('connect', () => {
@@ -101,9 +102,12 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
           if (!isMounted) return;
           console.log('Event: user-joined', userId);
           setConnectionStatus('connecting');
+          
+          // In a 1-on-1, if someone joins, we can initiate
           if (isHost) {
             initiatePeer(userId, currentStream, iceServers);
           } else {
+            // If participant joins and sees a host (or anyone), they can say hello
             socket.emit('signal', {
               to: userId,
               type: 'presence' 
@@ -114,9 +118,11 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
         socket.on('signal', (data) => {
           if (!isMounted) return;
           const { from, signal, type } = data;
+          console.log('Received signal:', type || 'SDP', 'from:', from);
           
           if (type === 'presence') {
             if (isHost) {
+              console.log('Received presence signal, initiating peer to:', from);
               setConnectionStatus('connecting');
               initiatePeer(from, currentStream, iceServers);
             }
@@ -125,9 +131,14 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
 
           if (signal) {
             setConnectionStatus('connecting');
-            if (peerRef.current) {
-              peerRef.current.signal(signal);
+            if (peerRef.current && !peerRef.current.destroyed) {
+              try {
+                peerRef.current.signal(signal);
+              } catch (e) {
+                console.error('Error signaling existing peer:', e);
+              }
             } else if (!isHost) {
+              // Participant waits for host to initiate, then accepts
               acceptPeer(from, signal, currentStream, iceServers);
             }
           }
@@ -183,8 +194,9 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
   }, [remoteStream]);
 
   const initiatePeer = (userId: string, currentStream: MediaStream, iceServers: any[]) => {
-    if (peerRef.current) return; // Already initiating
-    console.log('Creating initiator peer...');
+    if (peerRef.current && !peerRef.current.destroyed) return;
+    console.log('Creating initiator peer for:', userId);
+    
     const peer = new Peer({
       initiator: true,
       trickle: true,
@@ -199,6 +211,7 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
     });
 
     peer.on('signal', (data) => {
+      console.log('Initiator generated signal');
       socketRef.current?.emit('signal', {
         to: userId,
         signal: data
@@ -206,20 +219,24 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
     });
 
     peer.on('stream', (rStream) => {
-      console.log('Initiator received remote stream');
+      console.log('Initiator received remote stream', rStream.id);
       setRemoteStream(rStream);
     });
 
     peer.on('error', (err) => {
       console.error('Peer error (initiator):', err);
+      if (err.code === 'ERR_ICE_CONNECTION_FAILURE') {
+        toast.error('Connection failed. Retrying...');
+      }
     });
 
     peerRef.current = peer;
   };
 
   const acceptPeer = (userId: string, incomingSignal: any, currentStream: MediaStream, iceServers: any[]) => {
-    if (peerRef.current) return; // Already accepted or active
-    console.log('Creating participant peer to accept signal from', userId);
+    if (peerRef.current && !peerRef.current.destroyed) return;
+    console.log('Creating participant peer to accept signal from:', userId);
+    
     const peer = new Peer({
       initiator: false,
       trickle: true,
@@ -234,6 +251,7 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
     });
 
     peer.on('signal', (data) => {
+      console.log('Participant generated signal');
       socketRef.current?.emit('signal', {
         to: userId,
         signal: data
@@ -241,7 +259,7 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
     });
 
     peer.on('stream', (rStream) => {
-      console.log('Participant received remote stream');
+      console.log('Participant received remote stream', rStream.id);
       setRemoteStream(rStream);
     });
 
@@ -249,7 +267,11 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
       console.error('Peer error (participant):', err);
     });
 
-    peer.signal(incomingSignal);
+    try {
+      peer.signal(incomingSignal);
+    } catch (e) {
+      console.error('Initial signal failed:', e);
+    }
     peerRef.current = peer;
   };
 
@@ -279,24 +301,21 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
           playsInline 
           className="w-full h-full object-cover"
         />
-        {!connected && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-xl z-20">
-             <div className="w-20 h-20 bg-cyan-500/10 rounded-full flex items-center justify-center mb-4 animate-pulse">
-                <User className="w-10 h-10 text-cyan-400" />
-             </div>
-             <p className="text-white font-black uppercase tracking-widest animate-pulse text-center px-4">
-                {connectionStatus === 'initializing' && 'Initializing Camera...'}
-                {connectionStatus === 'signaling' && 'Waiting for Peer...'}
-                {connectionStatus === 'connecting' && 'Establishing Secure Link...'}
-             </p>
-             <p className="text-zinc-500 text-[10px] uppercase mt-4 tracking-tighter">
-                ID: {callId.slice(-6)} | {isHost ? 'HOST' : 'PEER'}
-             </p>
+        
+        {/* Remote Person Label */}
+        {connected && (
+          <div className="absolute top-8 left-1/2 -translate-x-1/2 z-30">
+            <div className="bg-zinc-950/40 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10 flex items-center gap-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              <span className="text-[10px] font-bold text-white uppercase tracking-widest">
+                {isHost ? 'Visitor Connected' : 'Admin Live'}
+              </span>
+            </div>
           </div>
         )}
 
         {/* Local Video (Small Bubble) */}
-        <div className="absolute top-6 right-6 w-32 md:w-48 aspect-[3/4] bg-zinc-800 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl z-10 transition-all hover:scale-105">
+        <div className="absolute top-6 right-6 w-32 md:w-48 aspect-[3/4] bg-zinc-800 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl z-40 transition-all hover:scale-105 group">
           <video 
             ref={myVideo} 
             autoPlay 
@@ -304,12 +323,64 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
             playsInline 
             className="w-full h-full object-cover"
           />
+          <div className="absolute bottom-2 left-2 bg-black/40 backdrop-blur-md px-2 py-0.5 rounded-md">
+            <span className="text-[8px] font-bold text-white uppercase">You</span>
+          </div>
           {!videoActive && (
             <div className="absolute inset-0 bg-zinc-900 flex items-center justify-center">
               <VideoOff className="w-8 h-8 text-zinc-700" />
             </div>
           )}
         </div>
+
+        {/* Global Connection Overlay */}
+        <AnimatePresence>
+          {!connected && (
+            <motion.div 
+              initial={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/90 backdrop-blur-2xl z-50 px-8"
+            >
+              <div className="relative">
+                <div className="w-24 h-24 bg-cyan-500/10 rounded-full flex items-center justify-center mb-8 animate-pulse border border-cyan-500/20">
+                  <User className="w-12 h-12 text-cyan-400" />
+                </div>
+                <motion.div 
+                  animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="absolute -inset-4 border-2 border-cyan-500/20 rounded-full"
+                />
+              </div>
+
+              <div className="text-center max-w-sm">
+                <h3 className="text-white font-black text-xl uppercase tracking-tighter mb-2">
+                  {connectionStatus === 'initializing' && 'Booting Systems...'}
+                  {connectionStatus === 'signaling' && 'Broadcasting Signal...'}
+                  {connectionStatus === 'connecting' && 'Opening Portal...'}
+                </h3>
+                <p className="text-zinc-500 text-xs font-medium leading-relaxed mb-8">
+                  {connectionStatus === 'signaling' && 'Waiting for the other party to join the frequency.'}
+                  {connectionStatus === 'connecting' && 'Synchronization in progress. Almost there.'}
+                </p>
+
+                <div className="flex items-center justify-center gap-1.5">
+                  <div className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  <div className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                  <div className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce" />
+                </div>
+              </div>
+
+              <div className="absolute bottom-12 left-0 right-0 flex flex-col items-center gap-2">
+                <p className="text-zinc-600 text-[9px] font-bold uppercase tracking-[0.4em]">
+                  Encrypted Bridge ID
+                </p>
+                <div className="px-4 py-1 bg-white/5 rounded-full border border-white/10 font-mono text-[10px] text-cyan-500/70">
+                  {callId}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Controls Overlay */}
         <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-zinc-950/50 backdrop-blur-2xl p-4 rounded-3xl border border-white/10 shadow-2xl">
