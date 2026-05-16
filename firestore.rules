@@ -180,6 +180,7 @@ service cloud.firestore {
     match /test_requests/{requestId} {
       allow list, get, delete: if isAdmin();
       allow create: if isVerified() && isValidTestRequest(incoming());
+      allow update: if isAdmin();
     }
 
     match /settings/{settingId} {

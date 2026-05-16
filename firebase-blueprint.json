@@ -134,6 +134,7 @@
         "productName": { "type": "string" },
         "userId": { "type": "string" },
         "userName": { "type": "string" },
+        "adminAlerted": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["productId", "userId"]

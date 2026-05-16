@@ -14,7 +14,9 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
-const ALERT_SOUND_URL = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
+const ALERT_SOUND_URL = 'https://raw.githubusercontent.com/Hemanth-22/assets/main/emergency-alert.mp3'; // Using a more reliable raw github asset or similar if possible. Actually let's use a very short system sound.
+// Fallback to a different reliable URL
+const RELIABLE_SOUND_URL = 'https://notificationsounds.com/storage/sounds/file-sounds-1150-pristine.mp3';
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAdmin } = useAuth();
@@ -32,28 +34,18 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   // Initialize AudioContext and enable audio on first user interaction
   useEffect(() => {
     const enableAudio = () => {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-      
-      if (audioContextRef.current?.state === 'suspended') {
-        audioContextRef.current.resume().then(() => {
-          console.log('AudioContext resumed via interaction');
-          setIsAudioEnabled(true);
-          if (pendingAlertRef.current) {
-            console.log('Playing pending alert after interaction');
-            playAlert();
-            pendingAlertRef.current = false;
-          }
-        });
-      } else {
+      // Force interaction check
+      const audio = new Audio();
+      audio.play().then(() => {
+        console.log('Audio playback capability verified');
         setIsAudioEnabled(true);
         if (pendingAlertRef.current) {
-          console.log('Playing pending alert after interaction');
           playAlert();
           pendingAlertRef.current = false;
         }
-      }
+      }).catch(() => {
+        console.log('Audio still blocked');
+      });
     };
 
     const handleInteraction = () => {
@@ -77,54 +69,60 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // Only play sound if user is an admin
     if (!isAdmin) return;
 
-    // Prevent overlapping alerts within 5 seconds
+    // Prevent overlapping alert sessions within 15 seconds (to allow 5 cycles to finish)
     const now = Date.now();
-    if (now - lastPlayedTime.current < 5000) {
-      console.log('Skipping overlapping alert (throttled)');
+    if (now - lastPlayedTime.current < 15000) {
+      console.log('An alert session is already active or recently finished. Skipping.');
       return;
     }
     
-    console.log('Attempting to play alert sound sequence...');
+    console.log('Initiating 5-cycle emergency alert sequence...');
+    lastPlayedTime.current = now;
 
     const playSound = async () => {
-      const audio = new Audio(ALERT_SOUND_URL);
-      audio.volume = 1.0;
       let playCount = 0;
       const MAX_PLAYS = 5;
 
-      const playNextCycle = () => {
+      const playNextCycle = async () => {
         if (playCount >= MAX_PLAYS) {
-          console.log('Alert sequence completed.');
+          console.log('5-cycle alert sequence completed.');
           return;
         }
 
-        audio.currentTime = 0;
-        audio.play().then(() => {
-          console.log(`Alert cycle ${playCount + 1}/${MAX_PLAYS} playing`);
-          playCount++;
-          lastPlayedTime.current = Date.now(); // Only update lastPlayed if successful
-          pendingAlertRef.current = false;
-        }).catch(err => {
-          if (err.name === 'NotAllowedError') {
-            console.warn('Playback blocked by browser policy. Queuing for first interaction.');
+        try {
+          // A more attention-grabbing alert sound URL
+          const audio = new Audio('https://raw.githubusercontent.com/Hemanth-22/assets/main/emergency-alert.mp3');
+          audio.volume = 1.0;
+          
+          audio.onended = () => {
+            playCount++;
+            if (playCount < MAX_PLAYS) {
+              setTimeout(playNextCycle, 500); // 0.5s gap between siren bursts
+            }
+          };
+
+          await audio.play();
+          console.log(`EMERGENCY SIREN CYCLE ${playCount + 1}/${MAX_PLAYS}`);
+        } catch (err: any) {
+          if (err.name === 'NotAllowedError' || err.name === 'NotReadableError') {
+            console.warn('Audio blocked. Click anywhere to activate.');
             pendingAlertRef.current = true;
             setIsAudioEnabled(false);
             
-            // Only show toast once
-            toast.error('Notification sound blocked. Click anywhere on the page to enable alerts.', {
-              id: 'audio-blocked',
+            toast.error('EMERGENCY ALERT BLOCKED! Click anywhere on page to enable siren.', {
+              id: 'audio-blocked-notice',
               duration: 8000,
               icon: '🔊'
             });
           } else {
-            console.error('Audio playback error:', err);
+            console.error('Audio failure, trying fallback beep:', err);
+            try {
+              const fallbackAudio = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
+              fallbackAudio.play();
+            } catch (f) {
+              console.error('All audio attempts failed');
+            }
           }
-        });
-      };
-
-      audio.onended = () => {
-        if (playCount < MAX_PLAYS) {
-          setTimeout(playNextCycle, 800);
         }
       };
 
@@ -133,17 +131,18 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     playSound();
 
-    toast.error('NEW ADMIN ACTION REQUIRED!', {
-      duration: 15000,
+    toast.error('EMERGENCY: ACTION REQUIRED IN ADMIN PANEL!', {
+      duration: 12000,
       position: 'top-right',
       icon: '🚨',
       style: {
-        background: '#dc2626',
+        background: '#7f1d1d',
         color: '#fff',
         fontWeight: '900',
-        padding: '20px',
-        borderRadius: '16px',
-        border: '4px solid #fff',
+        padding: '24px',
+        borderRadius: '20px',
+        border: '4px solid #ef4444',
+        boxShadow: '0 0 40px rgba(239, 68, 68, 0.4)'
       }
     });
   }, [isAdmin]);
@@ -180,162 +179,89 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   };
 
-  useEffect(() => {
-    if (!messaging) return;
-
-    const unsubscribe = onMessage(messaging, (payload) => {
-      console.log('Foreground message received:', payload);
-      toast(payload.notification?.title || 'New Alert!', {
-        icon: '🔔',
-        duration: 6000
-      });
-      playAlert();
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    // Re-sync token if permission is already granted but user just logged in
-    const syncToken = async () => {
-      if (permission === 'granted' && auth.currentUser && messaging) {
-        try {
-          const token = await getToken(messaging, {
-            vapidKey: 'BMT-tH_XN3Z9G4_X9Q_X9Q_X9Q_X9Q_X9Q_X9Q_X9Q_X9Q'
-          });
-          if (token) {
-            if (ADMIN_EMAILS.includes(auth.currentUser.email || '')) {
-              await setDoc(doc(db, 'fcm_tokens', auth.currentUser.uid), {
-                token,
-                email: auth.currentUser.email,
-                userId: auth.currentUser.uid,
-                updatedAt: serverTimestamp()
-              }, { merge: true });
-              console.log('FCM Token synced for admin');
-            }
-          }
-        } catch (error) {
-          console.error('Token sync error:', error);
-        }
-      }
-    };
-    syncToken();
-  }, [auth.currentUser, permission]);
-
-  useEffect(() => {
-    if (isAdmin) {
-      startTimeRef.current = Date.now();
-      console.log('Admin session active. Monitoring from:', new Date(startTimeRef.current).toLocaleTimeString());
-      
-      // Check for existing pending items upon opening/becoming admin
-      const checkExisting = async () => {
-        try {
-          const { getDocs, where } = await import('firebase/firestore');
-          
-          // Check for pending orders
-          const ordersSnap = await getDocs(query(collection(db, 'orders'), where('paymentStatus', '==', 'pending_verification'), limit(1)));
-          if (!ordersSnap.empty) {
-            console.log('Initial pending order found');
-            playAlert();
-            return;
-          }
-
-          // Check for pending calls
-          const callsSnap = await getDocs(query(collection(db, 'live_calls'), where('status', '==', 'pending'), limit(1)));
-          if (!callsSnap.empty) {
-            console.log('Initial pending call found');
-            playAlert();
-            return;
-          }
-
-          // Check for pending payments
-          const paymentsSnap = await getDocs(query(collection(db, 'payments'), where('status', '==', 'pending'), limit(1)));
-          if (!paymentsSnap.empty) {
-            console.log('Initial pending payment found');
-            playAlert();
-            return;
-          }
-        } catch (error) {
-          console.error('Error checking initial pending items:', error);
-        }
-      };
-
-      // Slight delay to ensure UI is ready
-      setTimeout(checkExisting, 2000);
-    }
-  }, [isAdmin, playAlert]);
-
-  // Listen for new orders to play alert for admins
+  // Listen for background events to trigger alerts for admins
   useEffect(() => {
     if (!isAdmin || !user) return;
 
-    console.log('System-wide admin listeners enabled');
+    console.log('Background admin monitoring active');
+    const updateDocRef = async (col: string, id: string) => {
+      try {
+        const { updateDoc, doc } = await import('firebase/firestore');
+        await updateDoc(doc(db, col, id), { adminAlerted: true });
+      } catch (err) {
+        console.error(`Failed to update ${col} alert status:`, err);
+      }
+    };
 
-    const startTime = startTimeRef.current;
-    
-    // Listen for new orders
-    const qOrders = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(1));
-    const unsubscribeOrders = onSnapshot(qOrders, (snapshot) => {
+    // Live Calls
+    const unsubscribeCalls = onSnapshot(collection(db, 'live_calls'), (snapshot) => {
       snapshot.docChanges().forEach((change) => {
-        if (change.type === 'added') {
+        if (change.type === 'added' || change.type === 'modified') {
           const data = change.doc.data();
-          // Skip if missing createdAt or too old
-          if (!data.createdAt) return;
-          
-          const createdAt = data.createdAt.toMillis?.() || new Date(data.createdAt).getTime();
-          if (createdAt >= startTime) {
-            console.log('Real-time order detected:', change.doc.id);
+          if (data.status === 'pending' && !data.adminAlerted) {
+            console.log('New live call detected by background listener');
             playAlert();
+            updateDocRef('live_calls', change.doc.id);
           }
         }
       });
-    }, (error) => {
-      console.error('Orders snapshot error:', error);
-    });
+    }, (err) => console.error('Call listener error:', err));
 
-    // Listen for new live calls
-    const qCalls = query(collection(db, 'live_calls'), orderBy('createdAt', 'desc'), limit(1));
-    const unsubscribeCalls = onSnapshot(qCalls, (snapshot) => {
+    // Orders
+    const unsubscribeOrders = onSnapshot(collection(db, 'orders'), (snapshot) => {
       snapshot.docChanges().forEach((change) => {
-        if (change.type === 'added') {
+        if (change.type === 'added' || change.type === 'modified') {
           const data = change.doc.data();
-          if (!data.createdAt) return;
-
-          const createdAt = data.createdAt.toMillis?.() || new Date(data.createdAt).getTime();
-          if (createdAt >= startTime && data.status === 'pending') {
-            console.log('Real-time live call detected:', change.doc.id);
+          if (data.paymentStatus === 'pending_verification' && !data.adminAlerted) {
+            console.log('New order verification detected by background listener');
             playAlert();
+            updateDocRef('orders', change.doc.id);
           }
         }
       });
-    }, (error) => {
-      console.error('Calls snapshot error:', error);
-    });
+    }, (err) => console.error('Order listener error:', err));
 
-    // Listen for new payments
-    const qPayments = query(collection(db, 'payments'), orderBy('createdAt', 'desc'), limit(1));
-    const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
+    // Payments
+    const unsubscribePayments = onSnapshot(collection(db, 'payments'), (snapshot) => {
       snapshot.docChanges().forEach((change) => {
-        if (change.type === 'added') {
+        if (change.type === 'added' || change.type === 'modified') {
           const data = change.doc.data();
-          if (!data.createdAt) return;
-
-          const createdAt = data.createdAt.toMillis?.() || new Date(data.createdAt).getTime();
-          if (createdAt >= startTime && data.status === 'pending') {
-            console.log('Real-time payment detected:', change.doc.id);
+          if (data.status === 'pending' && !data.adminAlerted) {
+            console.log('New payment detected by background listener');
             playAlert();
+            updateDocRef('payments', change.doc.id);
           }
         }
       });
-    }, (error) => {
-      console.error('Payments snapshot error:', error);
-    });
+    }, (err) => console.error('Payment listener error:', err));
+
+    // Test Requests
+    const unsubscribeTests = onSnapshot(collection(db, 'test_requests'), (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          if (!data.adminAlerted) {
+            console.log('Test notification detected by background listener');
+            playAlert();
+            updateDocRef('test_requests', change.doc.id);
+          }
+        }
+      });
+    }, (err) => console.error('Test listener error:', err));
+
+    // Foreground FCM messages
+    const unsubscribeFCM = messaging ? onMessage(messaging, (payload) => {
+      console.log('Foreground message received:', payload);
+      toast(payload.notification?.title || 'New Alert!', { icon: '🔔', duration: 6000 });
+      playAlert();
+    }) : () => {};
 
     return () => {
-      unsubscribeOrders();
       unsubscribeCalls();
+      unsubscribeOrders();
       unsubscribePayments();
-      console.log('Admin notification listeners deactivated');
+      unsubscribeTests();
+      unsubscribeFCM();
     };
   }, [isAdmin, user, playAlert]);
 

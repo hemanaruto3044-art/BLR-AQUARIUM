@@ -27,14 +27,16 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
   const handleStream = (call: any) => {
+    console.log("Setting up stream handlers for call");
     call.on('stream', (remoteMediaStream: MediaStream) => {
-      console.log("Remote stream received");
+      console.log("REMOTE STREAM RECEIVED:", {
+        id: remoteMediaStream.id,
+        active: remoteMediaStream.active,
+        trackCount: remoteMediaStream.getTracks().length
+      });
       setRemoteStream(remoteMediaStream);
       setConnected(true);
       setStatusLog("HD Link Established");
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteMediaStream;
-      }
     });
 
     call.on('close', () => {
@@ -62,8 +64,8 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
         const constraints: MediaStreamConstraints = {
           video: {
             facingMode: isHost ? "environment" : "user",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 640 }, // Lowering ideal for better compatibility
+            height: { ideal: 480 }
           },
           audio: true
         };
@@ -83,6 +85,9 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
         }
 
         setLocalStream(stream);
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
         currentStream = stream;
         setupPeer(stream);
       } catch (err: any) {
@@ -91,42 +96,68 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
       }
     };
 
-    const setupPeer = (stream: MediaStream) => {
-      setStatusLog("Connecting to Peer Network...");
+  const setupPeer = (stream: MediaStream) => {
+    setStatusLog("Connecting to Peer Network...");
+    
+    if (currentPeer && !currentPeer.destroyed) {
+      currentPeer.destroy();
+    }
+
+    const newPeer = new Peer({
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' },
+        ],
+        sdpSemantics: 'unified-plan'
+      }
+    });
+
+    currentPeer = newPeer;
+    setPeer(newPeer);
+
+    newPeer.on('open', (id) => {
+      console.log('Peer registered as:', id);
+      setStatusLog("Signal Active. Syncing...");
       
-      const newPeer = new Peer();
-      currentPeer = newPeer;
-      setPeer(newPeer);
+      const callRef = doc(db, 'live_calls', callId);
+      const peerField = isHost ? 'hostPeerId' : 'visitorPeerId';
+      const targetField = isHost ? 'visitorPeerId' : 'hostPeerId';
 
-      newPeer.on('open', (id) => {
-        console.log('Peer registered as:', id);
-        setStatusLog("Signal Active. Waiting for Peer...");
-        
-        const callRef = doc(db, 'live_calls', callId);
-        const peerField = isHost ? 'hostPeerId' : 'visitorPeerId';
-        const targetField = isHost ? 'visitorPeerId' : 'hostPeerId';
-
-        updateDoc(callRef, { [peerField]: id }).catch(err => {
-          console.error("ID Sync Fail:", err);
-          setStatusLog("Sync Error.");
-        });
-
-        unsubscribeSync = onSnapshot(callRef, (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            const remoteId = data[targetField];
-            if (remoteId && remoteId !== targetId) {
-              setTargetId(remoteId);
-            }
-          }
-        });
+      updateDoc(callRef, { [peerField]: id }).catch(err => {
+        console.error("ID Sync Fail:", err);
+        setStatusLog("Sync Error.");
       });
 
-      newPeer.on('call', (incomingCall) => {
-        console.log("Receiving incoming call...");
-        setStatusLog("Connecting Stream...");
-        incomingCall.answer(stream);
-        handleStream(incomingCall);
+      // Listen for the other side's ID
+      unsubscribeSync = onSnapshot(callRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          const remoteId = data[targetField];
+          if (remoteId) {
+            console.log("Remote ID detected:", remoteId);
+            setTargetId(remoteId);
+          }
+        }
+      });
+    });
+
+    newPeer.on('call', (incomingCall) => {
+      console.log("Receiving incoming call from:", incomingCall.peer);
+      setStatusLog("Securing Stream...");
+      incomingCall.answer(stream);
+      handleStream(incomingCall);
+    });
+
+      newPeer.on('disconnected', () => {
+        console.warn("Peer disconnected from signaling server. Attempting to reconnect...");
+        setStatusLog("Reconnecting Signal...");
+        if (!newPeer.destroyed) {
+          newPeer.reconnect();
+        }
       });
 
       newPeer.on('error', (err) => {
@@ -134,16 +165,31 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
         if (err.type === 'peer-unavailable') {
           setStatusLog("Waiting for participant...");
         } else if (err.type === 'unavailable-id') {
-          setStatusLog("ID conflict. Re-connecting...");
+          setStatusLog("ID conflict. Retrying...");
           setTimeout(() => {
-            if (newPeer && !newPeer.destroyed) {
-              setupPeer(stream);
+            if (!newPeer.destroyed) {
+               setupPeer(stream);
             }
           }, 1000);
+        } else if (err.type === 'network' || err.type === 'server-error') {
+          setStatusLog("Network Link Unstable. Reconnecting...");
+          if (!newPeer.destroyed) {
+            // Reconnect if disconnected
+            if (newPeer.disconnected) {
+              newPeer.reconnect();
+            } else {
+              // Forced cleanup and restart if it's a persistent error
+              setTimeout(() => setupPeer(stream), 3000);
+            }
+          }
         } else {
           setStatusLog(`Link Error: ${err.type}`);
         }
       });
+
+      return () => {
+        window.removeEventListener('beforeunload', handleUnload);
+      };
     };
 
     initMedia();
@@ -158,24 +204,29 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
 
-    if (isHost && targetId && !connected && peer && !peer.destroyed && localStream) {
+    if (targetId && !connected && peer && !peer.destroyed && localStream) {
       const attemptCall = () => {
         if (connected) return;
         setStatusLog("Initiating Secure Call...");
+        console.log("Attempting call to:", targetId);
         const call = peer.call(targetId, localStream);
         if (call) {
           handleStream(call);
         }
       };
 
-      attemptCall();
-      interval = setInterval(attemptCall, 5000);
-    }
+      // Both sides attempt to call to bypass "who-starts-first" issues
+      // But we stagger them slightly
+      const delay = isHost ? 1000 : 3000;
+      const timeout = setTimeout(attemptCall, delay);
+      interval = setInterval(attemptCall, 8000);
 
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isHost, targetId, connected, peer, localStream]);
+      return () => {
+        clearTimeout(timeout);
+        if (interval) clearInterval(interval);
+      };
+    }
+  }, [targetId, connected, peer, localStream, isHost]);
 
   const toggleMic = () => {
     if (localStream) {
@@ -200,27 +251,44 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.onloadedmetadata = () => {
+        localVideoRef.current?.play().catch(console.error);
+      };
     }
   }, [localStream]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.onloadedmetadata = () => {
+        remoteVideoRef.current?.play().catch(console.error);
+      };
+    }
+  }, [remoteStream]);
 
   const handleLeave = () => {
     onEnd();
   };
 
   return (
-    <div className="fixed inset-0 z-[999] bg-black flex flex-col items-center justify-center p-0 md:p-4 animate-in fade-in duration-500 overflow-hidden">
-      <div className="relative w-full h-[100dvh] md:h-full md:aspect-video bg-zinc-950 md:rounded-[2.5rem] overflow-hidden border border-white/5 shadow-2xl">
+    <div className="fixed inset-0 z-[999] bg-black flex flex-col items-center justify-center p-0 animate-in fade-in duration-500 overflow-hidden">
+      <div className="relative w-full h-[100dvh] bg-zinc-950 overflow-hidden border-none shadow-none">
         
         {/* Remote Video (Main Background) */}
-        <div className="w-full h-full">
+        <div className="w-full h-full relative">
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            className={cn("w-full h-full object-cover", !connected && "hidden")}
+            className={cn(
+              "w-full h-full object-cover transition-opacity duration-1000", 
+              connected ? "opacity-100" : "opacity-0"
+            )}
           />
-          {!connected && (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-6 bg-zinc-950">
+          <div className={cn(
+            "absolute inset-0 flex flex-col items-center justify-center gap-6 bg-zinc-950 transition-opacity duration-500",
+            connected ? "opacity-0 pointer-events-none" : "opacity-100"
+          )}>
                <motion.div 
                  animate={{ 
                    scale: [1, 1.1, 1],
@@ -236,7 +304,6 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
                  <p className="text-zinc-800 text-[10px] font-mono">{callId}</p>
                </div>
             </div>
-          )}
         </div>
         
         {/* Connection Quality / Status Overlay (Top Left) */}
@@ -252,10 +319,25 @@ const LiveCall: React.FC<LiveCallProps> = ({ callId, isHost, onEnd }) => {
               </div>
             </div>
             
-            {errorStatus && (
-              <div className="bg-red-500/10 backdrop-blur-xl px-4 py-2 rounded-2xl border border-red-500/20 text-[9px] font-bold text-red-400 uppercase tracking-widest">
+            {errorStatus ? (
+              <div className="bg-red-500/10 backdrop-blur-xl px-4 py-2 rounded-2xl border border-red-500/20 text-[9px] font-bold text-red-400 uppercase tracking-widest flex items-center gap-2">
                 {errorStatus}
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="bg-red-500 text-white px-2 py-0.5 rounded ml-2"
+                >
+                  Reload
+                </button>
               </div>
+            ) : (
+              !connected && (
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="bg-white/5 backdrop-blur-xl px-4 py-2 rounded-2xl border border-white/10 text-[8px] font-bold text-zinc-400 uppercase tracking-widest hover:bg-white/10 transition-all"
+                >
+                  Reset Connection
+                </button>
+              )
             )}
           </div>
         </div>

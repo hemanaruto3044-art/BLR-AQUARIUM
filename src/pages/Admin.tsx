@@ -173,14 +173,6 @@ const Admin = () => {
     const unsubscribeLive = onSnapshot(lQ, (snapshot) => {
       const calls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
       setLiveCalls(calls);
-      const newCalls = calls.filter(c => c.status === 'pending' && !c.adminAlerted);
-      if (newCalls.length > 0) {
-        console.log('New live call(s) detected, triggering alert...');
-        playAlert(); 
-        newCalls.forEach(async (c) => {
-          await updateDoc(doc(db, 'live_calls', c.id), { adminAlerted: true });
-        });
-      }
     }, (e) => {
       handleFirestoreError(e, OperationType.GET, lPath);
     });
@@ -207,15 +199,6 @@ const Admin = () => {
     const unsubscribeOrders = onSnapshot(oQ, (snapshot) => {
       const allOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
       setOrders(allOrders);
-      
-      const newOrders = allOrders.filter(o => o.status === 'pending' && !o.adminAlerted);
-      if (newOrders.length > 0) {
-        console.log('New order(s) detected, triggering alert...');
-        playAlert();
-        newOrders.forEach(async (o) => {
-          await updateDoc(doc(db, 'orders', o.id), { adminAlerted: true });
-        });
-      }
     }, (e) => {
       handleFirestoreError(e, OperationType.GET, oPath);
     });
@@ -223,7 +206,8 @@ const Admin = () => {
     const tPath = 'test_requests';
     const tQ = query(collection(db, tPath), orderBy('createdAt', 'desc'));
     const unsubscribeTests = onSnapshot(tQ, (snapshot) => {
-      setTestRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const tests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setTestRequests(tests);
     }, (e) => {
       handleFirestoreError(e, OperationType.GET, tPath);
     });
@@ -233,15 +217,6 @@ const Admin = () => {
     const unsubscribePayments = onSnapshot(payQ, (snapshot) => {
       const allPayments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
       setPayments(allPayments);
-
-      const newPayments = allPayments.filter(p => p.status === 'pending' && !p.adminAlerted);
-      if (newPayments.length > 0) {
-        console.log('New payment(s) detected, triggering alert...');
-        playAlert();
-        newPayments.forEach(async (p) => {
-          await updateDoc(doc(db, 'payments', p.id), { adminAlerted: true });
-        });
-      }
     }, (e) => {
       handleFirestoreError(e, OperationType.GET, payPath);
     });
